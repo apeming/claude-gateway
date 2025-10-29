@@ -7,6 +7,7 @@
 - 🚀 **高性能关键词过滤**: 使用 Aho-Corasick 算法，O(m) 时间复杂度
 - 🔐 **API 鉴权保护**: 支持 API Token 认证，保护管理接口
 - 🔄 **请求代理**: 透明代理 Claude API 请求
+- 🛠️ **命令行管理工具**: 提供便捷的CLI工具管理关键字
 - 📊 **JSON 日志**: 结构化日志，便于分析和监控
 - 🏥 **健康检查**: 内置健康检查端点，支持容器编排
 - 🐳 **容器化部署**: 完整的 Docker/Docker Compose 支持
@@ -21,10 +22,16 @@ claude-gateway/
 ├── Makefile                 # 便捷命令工具
 ├── README.md                # 项目文档（本文件）
 ├── QUICKSTART.md            # 快速启动指南
+├── tools/                   # 关键字管理工具
+│   ├── keywords             # CLI工具执行脚本
+│   ├── keywords.py          # Python CLI实现
+│   ├── install.sh           # 安装脚本
+│   ├── requirements.txt     # Python依赖
+│   ├── sample-keywords.txt  # 示例关键字文件
+│   └── README.md            # 工具使用说明
 └── openresty/               # OpenResty 相关文件
     ├── Dockerfile           # Docker 镜像构建
-    ├── nginx.conf           # Nginx 配置
-    └── keywords.txt         # 关键词列表
+    └── nginx.conf           # Nginx 配置
 ```
 
 ## 🚀 快速开始
@@ -192,6 +199,65 @@ curl -H "Authorization: Bearer your-token" http://localhost/keyword/list
 # 方式3: Authorization 头（无 Bearer）
 curl -H "Authorization: your-token" http://localhost/keyword/list
 ```
+
+## 🛠️ 关键字管理CLI工具
+
+为了方便管理关键字，项目提供了专用的命令行工具，支持批量操作和脚本自动化。
+
+### 快速安装
+
+```bash
+# 进入工具目录
+cd tools/
+
+# 自动安装（推荐）
+./install.sh
+
+# 或手动安装依赖
+pip3 install -r requirements.txt
+```
+
+### 基本使用
+
+```bash
+# 配置API连接（首次使用）
+keywords config
+
+# 检查服务状态
+keywords status
+
+# 添加关键字
+keywords add "sensitive-word"
+
+# 删除关键字
+keywords del "sensitive-word"
+
+# 列出所有关键字
+keywords list
+
+# 从文件批量导入
+keywords import sample-keywords.txt
+
+# 导出到文件
+keywords export backup.txt
+```
+
+### 批量管理示例
+
+```bash
+# 备份现有关键字
+keywords export backup-$(date +%Y%m%d).txt
+
+# 批量添加关键字
+for word in "spam" "malware" "phishing"; do
+    keywords add "$word"
+done
+
+# 从文件导入新的关键字列表
+keywords import new-keywords.txt
+```
+
+> 📚 详细使用说明请参考：[tools/README.md](tools/README.md)
 
 ## 🛠️ 常用命令
 
