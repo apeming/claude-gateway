@@ -92,14 +92,14 @@ make health
 | `API_TOKEN` | API 鉴权 Token | `default-secret-token...` | ✅ 是 |
 | `UPSTREAM_URL` | 上游服务地址 | `https://api.anthropic.com` | ❌ 否 |
 | `HOST_PORT` | 主机端口映射 | `80` | ❌ 否 |
-| `KEYWORDS_FILE_PATH` | 关键词文件路径（宿主机） | `./openresty/keywords.txt` | ❌ 否 |
+| `KEYWORDS_FILE_DIR` | 关键词文件目录（宿主机） | `./openresty/keywords` | ❌ 否 |
 | `DOCKER_NETWORK_NAME` | Docker 网络名称 | `claude-gateway-network` | ❌ 否 |
 | `DOCKER_NETWORK_DRIVER` | Docker 网络驱动 | `bridge` | ❌ 否 |
 | `DOCKER_NETWORK_EXTERNAL` | 是否使用外部网络 | `false` | ❌ 否 |
 
 ### 关键词文件
 
-关键词文件包含需要过滤的关键词，每行一个。默认使用 `openresty/keywords.txt` 文件，也可以通过 `KEYWORDS_FILE_PATH` 环境变量指定自定义路径：
+关键词文件包含需要过滤的关键词，每行一个。默认使用 `openresty/keywords` 目录下的 `keywords.txt` 文件，也可以通过 `KEYWORDS_FILE_DIR` 环境变量指定自定义目录：
 
 ```text
 sensitive-word-1
@@ -111,10 +111,10 @@ bad-content
 
 ```bash
 # 在 .env 文件中配置
-KEYWORDS_FILE_PATH=/path/to/your/custom/keywords.txt
+KEYWORDS_FILE_DIR=/path/to/your/custom
 
 # 或直接在命令行指定
-KEYWORDS_FILE_PATH=/path/to/your/custom/keywords.txt docker compose up -d
+KEYWORDS_FILE_DIR=/path/to/your/custom docker compose up -d
 ```
 
 ## 🔌 API 接口
@@ -324,21 +324,21 @@ make clean
 
 ### 持久化关键词文件
 
-关键词文件路径支持通过 `KEYWORDS_FILE_PATH` 环境变量配置，默认挂载 `./openresty/keywords.txt`：
+关键词文件路径支持通过 `KEYWORDS_FILE_DIR` 环境变量配置，默认挂载 `./openresty/keywords`：
 
 ```yaml
 volumes:
-  - ${KEYWORDS_FILE_PATH:-./openresty/keywords.txt}:/etc/openresty/keywords.txt
+  - ${KEYWORDS_FILE_DIR:-./openresty/keywords}:/etc/openresty
 ```
 
 **使用自定义路径：**
 
 ```bash
 # 方式1: 在 .env 文件中配置
-KEYWORDS_FILE_PATH=/host/path/to/keywords.txt
+KEYWORDS_FILE_DIR=/host/path/to
 
 # 方式2: 命令行指定
-KEYWORDS_FILE_PATH=/host/path/to/keywords.txt docker compose up -d
+KEYWORDS_FILE_DIR=/host/path/to docker compose up -d
 ```
 
 修改宿主机上的关键词文件会自动同步到容器内。

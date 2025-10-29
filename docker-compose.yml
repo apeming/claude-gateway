@@ -20,7 +20,7 @@ services:
     # 卷挂载（可选）
     volumes:
       # 持久化关键词文件（可通过 KEYWORDS_FILE_PATH 环境变量配置路径）
-      - ${KEYWORDS_FILE_PATH:-./openresty/keywords.txt}:/etc/openresty/keywords.txt
+      - ${KEYWORDS_FILE_DIR:-./openresty/keywords}:/etc/openresty
       # 持久化日志（可选）
       # - ./logs:/usr/local/openresty/nginx/logs
 
