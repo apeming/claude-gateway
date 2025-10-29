@@ -159,7 +159,7 @@ GET /health
 ### 2. 业务接口（无需鉴权）
 
 ```bash
-POST /api/anthropic
+POST /
 Content-Type: application/json
 
 {
