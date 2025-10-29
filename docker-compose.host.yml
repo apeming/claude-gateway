@@ -1,0 +1,10 @@
+services:
+  claude-gateway:
+    # 使用主机网络模式
+    network_mode: host
+
+    # host 模式下端口映射被忽略，服务直接使用主机的端口
+    ports: []
+
+# host 模式下不需要定义网络
+networks: {}

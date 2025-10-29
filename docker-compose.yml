@@ -1,0 +1,64 @@
+services:
+  claude-gateway:
+    build:
+      context: ./openresty
+      dockerfile: Dockerfile
+    image: claude-gateway:latest
+    container_name: claude-gateway
+
+    # 环境变量配置
+    environment:
+      # API Token（必须设置，建议至少32字符）
+      - API_TOKEN=${API_TOKEN:-default-secret-token-please-change-me}
+      # 上游服务地址（可选，默认为官方 API）
+      - UPSTREAM_URL=${UPSTREAM_URL:-https://api.anthropic.com}
+
+    # 端口映射
+    ports:
+      - "${HOST_PORT:-80}:80"
+
+    # 卷挂载（可选）
+    volumes:
+      # 持久化关键词文件（可通过 KEYWORDS_FILE_PATH 环境变量配置路径）
+      - ${KEYWORDS_FILE_PATH:-./openresty/keywords.txt}:/etc/openresty/keywords.txt
+      # 持久化日志（可选）
+      # - ./logs:/usr/local/openresty/nginx/logs
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # 重启策略
+    restart: unless-stopped
+
+    # 资源限制（可选）
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+    # 日志配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # 网络配置
+    networks:
+      - claude-gateway-network
+
+# 网络定义
+networks:
+  claude-gateway-network:
+    name: ${DOCKER_NETWORK_NAME:-claude-gateway-network}
+    driver: ${DOCKER_NETWORK_DRIVER:-bridge}
+    external: ${DOCKER_NETWORK_EXTERNAL:-false}
