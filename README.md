@@ -138,9 +138,9 @@ KEYWORDS_FILE_DIR=/path/to/your/custom
 KEYWORDS_FILE_DIR=/path/to/your/custom docker compose up -d
 ```
 
-### Authorization 动态路由
+### Authorization 动态路由（支持路径替换）
 
-网关支持基于请求 `Authorization` 头动态路由到不同的上游服务，实现多租户或多后端服务的灵活管理。
+网关支持基于请求 `Authorization` 头动态路由到不同的上游服务，并自动进行路径替换，实现多租户或多后端服务的灵活管理。
 
 #### 配置方法
 
@@ -148,15 +148,35 @@ KEYWORDS_FILE_DIR=/path/to/your/custom docker compose up -d
 
 ```bash
 # 格式：token1->url1,token2->url2,token3->url3,...
-AUTH_ROUTE_MAP=cr_1->http://1.1.1.1:8080,cr_2->http://1.1.1.1:8080,cr_3->http://2.2.2.2:8080,cr_4->http://2.2.2.2:8080,cr_5->http://3.3.3.3:8080
+# upstream URL 可以包含 base_path
+AUTH_ROUTE_MAP=cr_1->http://1.1.1.1/api,cr_2->http://2.2.2.2/api/claude,cr_3->http://3.3.3.3
 ```
+
+#### 路径替换规则
+
+**重要约定：**
+- 所有客户端请求必须使用 `/api/*` 路径格式
+- 网关会将请求中的 `/api` 前缀替换为 upstream 配置的 base_path
+- 查询参数会自动保留
+
+**转换示例：**
+
+| 用户请求 | Token | Upstream 配置 | 实际转发 |
+|---------|-------|--------------|---------|
+| `/api/v1/messages` | cr_1 | `http://1.1.1.1/api` | `http://1.1.1.1/api/v1/messages` |
+| `/api/v1/messages` | cr_2 | `http://2.2.2.2/api/claude` | `http://2.2.2.2/api/claude/v1/messages` |
+| `/api/v1/messages` | cr_3 | `http://3.3.3.3` | `http://3.3.3.3/v1/messages` |
+| `/api/health?check=true` | cr_1 | `http://1.1.1.1/api` | `http://1.1.1.1/api/health?check=true` |
 
 #### 配置说明
 
+- **路径约定**：客户端必须使用 `/api/*` 路径访问
+- **路径替换**：自动将 `/api` 替换为 upstream 的 base_path
 - **多对一映射**：多个 authorization token 可以映射到同一个 upstream URL
 - **格式要求**：使用 `->` 分隔 token 和 URL，使用 `,` 分隔多个映射关系
 - **Bearer 支持**：请求时支持 `Authorization: Bearer token` 或 `Authorization: token` 两种格式
 - **启用条件**：只有配置了 `AUTH_ROUTE_MAP` 且不为空时，才启用动态路由功能
+- **斜杠处理**：upstream URL 末尾的 `/` 会被自动处理，避免双斜杠问题
 
 #### 工作模式
 
@@ -174,28 +194,40 @@ AUTH_ROUTE_MAP=cr_1->http://1.1.1.1:8080,cr_2->http://1.1.1.1:8080,cr_3->http://
 **配置示例：**
 
 ```bash
-# .env 文件配置
+# .env 文件配置（包含不同的 base_path）
 UPSTREAM_URL=https://api.anthropic.com
-AUTH_ROUTE_MAP=cr_1->http://backend1.example.com:8080,cr_2->http://backend2.example.com:8080
+AUTH_ROUTE_MAP=cr_1->http://backend1.example.com/api,cr_2->http://backend2.example.com/claude-api,cr_3->http://backend3.example.com
 ```
 
 **请求示例：**
 
 ```bash
-# 使用 cr_1 token，路由到 http://backend1.example.com:8080
-curl -X POST http://localhost/v1/messages \
+# 使用 cr_1 token
+# 请求: /api/v1/messages
+# 转发: http://backend1.example.com/api/v1/messages
+curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: Bearer cr_1" \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# 使用 cr_2 token，路由到 http://backend2.example.com:8080
-curl -X POST http://localhost/v1/messages \
+# 使用 cr_2 token
+# 请求: /api/v1/messages
+# 转发: http://backend2.example.com/claude-api/v1/messages
+curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: cr_2" \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
 
+# 使用 cr_3 token (无 base_path)
+# 请求: /api/v1/messages
+# 转发: http://backend3.example.com/v1/messages
+curl -X POST http://localhost/api/v1/messages \
+  -H "Authorization: cr_3" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+
 # 使用无效的 token，返回 401 错误
-curl -X POST http://localhost/v1/messages \
+curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: invalid_token" \
   -H "Content-Type: application/json" \
   -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -213,10 +245,12 @@ curl -X POST http://localhost/v1/messages \
 
 #### 应用场景
 
-- **多租户系统**：不同客户路由到不同的后端服务
-- **负载均衡**：手动分配不同用户到不同服务器
-- **A/B 测试**：部分用户路由到新版本服务
-- **服务隔离**：VIP 用户和普通用户使用不同的服务实例
+- **多租户系统**：不同客户路由到不同的后端服务，每个租户使用独立的 base_path
+- **路径隔离**：不同 token 访问后端服务的不同路径空间（如 `/api` vs `/api/claude`）
+- **负载均衡**：手动分配不同用户到不同服务器实例
+- **A/B 测试**：部分用户路由到新版本服务的测试路径
+- **服务隔离**：VIP 用户和普通用户使用不同的服务实例或路径前缀
+- **API 版本管理**：不同客户端版本路由到不同的 API 版本路径
 
 ## 🔌 API 接口
 
