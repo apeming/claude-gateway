@@ -1,0 +1,13 @@
+# Claude Gateway 路由配置示例
+# 格式: <token> <upstream_url>
+# 每行一个路由规则，token 和 URL 之间用空格分隔
+
+# 示例路由配置
+cr_1 http://backend1.example.com/api
+cr_2 http://backend2.example.com/claude-api
+cr_3 http://backend3.example.com
+
+# 更多示例
+# test_token http://test-server.example.com/api
+# prod_token http://prod-server.example.com/v1
+# dev_token http://localhost:8080/api

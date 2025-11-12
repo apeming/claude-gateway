@@ -1,0 +1,22 @@
+#!/bin/bash
+
+# Claude Gateway 路由管理工具包装脚本
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROUTES_SCRIPT="$SCRIPT_DIR/routes.py"
+
+# 检查Python是否安装
+if ! command -v python3 &> /dev/null; then
+    echo "❌ 错误: 未找到 python3，请先安装Python 3"
+    exit 1
+fi
+
+# 检查依赖是否安装
+if ! python3 -c "import requests" &> /dev/null; then
+    echo "⚠️  警告: 缺少依赖包，正在安装..."
+    pip3 install -r "$SCRIPT_DIR/requirements.txt"
+fi
+
+# 切换到脚本目录并执行
+cd "$SCRIPT_DIR"
+python3 "$ROUTES_SCRIPT" "$@"

@@ -51,7 +51,9 @@ claude-gateway/
 │   └── README.md            # 工具使用说明
 └── openresty/               # OpenResty 相关文件
     ├── Dockerfile           # Docker 镜像构建
-    └── nginx.conf           # Nginx 配置
+    ├── nginx.conf           # Nginx 配置
+    ├── keywords.txt         # 关键词配置文件
+    └── routes.txt           # 路由配置文件
 ```
 
 ## 🚀 快速开始
@@ -110,17 +112,22 @@ make health
 | 变量名 | 说明 | 默认值 | 必须 |
 |--------|------|--------|------|
 | `API_TOKEN` | API 鉴权 Token | `default-secret-token...` | ✅ 是 |
-| `UPSTREAM_URL` | 上游服务地址 | `https://api.anthropic.com` | ❌ 否 |
-| `AUTH_ROUTE_MAP` | Authorization 动态路由映射 | 空（不启用） | ❌ 否 |
+| `ENABLE_DYNAMIC_ROUTING` | 是否启用动态路由 | `false` | ❌ 否 |
+| `UPSTREAM_URL` | 上游服务地址（默认模式使用） | `https://api.anthropic.com` | ❌ 否 |
 | `HOST_PORT` | 主机端口映射 | `80` | ❌ 否 |
-| `KEYWORDS_FILE_DIR` | 关键词文件目录（宿主机） | `./openresty/keywords` | ❌ 否 |
+| `CONFIG_DIR` | 配置目录（宿主机，包含配置文件） | `./openresty` | ❌ 否 |
 | `DOCKER_NETWORK_NAME` | Docker 网络名称 | `claude-gateway-network` | ❌ 否 |
 | `DOCKER_NETWORK_DRIVER` | Docker 网络驱动 | `bridge` | ❌ 否 |
 | `DOCKER_NETWORK_EXTERNAL` | 是否使用外部网络 | `false` | ❌ 否 |
 
-### 关键词文件
+### 配置文件
 
-关键词文件包含需要过滤的关键词，每行一个。默认使用 `openresty/keywords` 目录下的 `keywords.txt` 文件，也可以通过 `KEYWORDS_FILE_DIR` 环境变量指定自定义目录：
+配置目录默认为 `./openresty`，包含以下配置文件：
+
+- **keywords.txt** - 关键词过滤配置，每行一个关键词
+- **routes.txt** - 路由配置（启用动态路由时使用），每行格式：`<token> <upstream_url>`
+
+**关键词文件示例（keywords.txt）：**
 
 ```text
 sensitive-word-1
@@ -128,29 +135,63 @@ sensitive-word-2
 bad-content
 ```
 
-**自定义关键词文件路径：**
+**路由配置文件示例（routes.txt）：**
+
+```text
+cr_1 http://backend1.example.com/api
+cr_2 http://backend2.example.com/claude-api
+cr_3 http://backend3.example.com
+```
+
+**自定义配置目录：**
 
 ```bash
 # 在 .env 文件中配置
-KEYWORDS_FILE_DIR=/path/to/your/custom
+CONFIG_DIR=/path/to/your/config
 
 # 或直接在命令行指定
-KEYWORDS_FILE_DIR=/path/to/your/custom docker compose up -d
+CONFIG_DIR=/path/to/your/config docker compose up -d
 ```
 
-### Authorization 动态路由（支持路径替换）
+### 动态路由配置
 
-网关支持基于请求 `Authorization` 头动态路由到不同的上游服务，并自动进行路径替换，实现多租户或多后端服务的灵活管理。
+网关支持基于 `Authorization` 头的动态路由，将不同的 token 路由到不同的上游服务。支持两种工作模式，通过 `ENABLE_DYNAMIC_ROUTING` 环境变量控制。
 
-#### 配置方法
+#### 工作模式
 
-在 `.env` 文件中配置 `AUTH_ROUTE_MAP` 环境变量：
+**模式 1：启用动态路由（严格模式）**
 
-```bash
-# 格式：token1->url1,token2->url2,token3->url3,...
-# upstream URL 可以包含 base_path
-AUTH_ROUTE_MAP=cr_1->http://1.1.1.1/api,cr_2->http://2.2.2.2/api/claude,cr_3->http://3.3.3.3
+当 `ENABLE_DYNAMIC_ROUTING=true` 时：
+- ✅ 必须提供 `Authorization` 头
+- ✅ Token 必须在 `routes.txt` 中配置
+- ✅ 从路由文件读取配置并路由到对应后端
+- ❌ 未匹配的 token 返回 401 错误
+- ℹ️ `UPSTREAM_URL` 配置被忽略
+
+**模式 2：默认模式（无需认证）**
+
+当 `ENABLE_DYNAMIC_ROUTING=false` 时（默认）：
+- ✅ 无需 `Authorization` 认证
+- ✅ 所有请求使用 `UPSTREAM_URL` 配置
+- ℹ️ `routes.txt` 文件被忽略
+
+#### 路由配置文件
+
+**文件路径：** `openresty/routes.txt`（容器内：`/etc/openresty/routes.txt`）
+
+**文件格式：** 每行一个路由规则，格式为 `<token> <upstream_url>`（空格分隔）
+
+```text
+cr_1 http://backend1.example.com/api
+cr_2 http://backend2.example.com/claude-api
+cr_3 http://backend3.example.com
 ```
+
+**格式要求：**
+- 严格两字段格式：token 和 URL，空格分隔
+- 不支持注释
+- 不允许多余字段
+- 空行自动忽略
 
 #### 路径替换规则
 
@@ -168,69 +209,59 @@ AUTH_ROUTE_MAP=cr_1->http://1.1.1.1/api,cr_2->http://2.2.2.2/api/claude,cr_3->ht
 | `/api/v1/messages` | cr_3 | `http://3.3.3.3` | `http://3.3.3.3/v1/messages` |
 | `/api/health?check=true` | cr_1 | `http://1.1.1.1/api` | `http://1.1.1.1/api/health?check=true` |
 
-#### 配置说明
+#### 配置示例
 
-- **路径约定**：客户端必须使用 `/api/*` 路径访问
-- **路径替换**：自动将 `/api` 替换为 upstream 的 base_path
-- **多对一映射**：多个 authorization token 可以映射到同一个 upstream URL
-- **格式要求**：使用 `->` 分隔 token 和 URL，使用 `,` 分隔多个映射关系
-- **Bearer 支持**：请求时支持 `Authorization: Bearer token` 或 `Authorization: token` 两种格式
-- **启用条件**：只有配置了 `AUTH_ROUTE_MAP` 且不为空时，才启用动态路由功能
-- **斜杠处理**：upstream URL 末尾的 `/` 会被自动处理，避免双斜杠问题
+**1. 启用动态路由：**
 
-#### 工作模式
+```bash
+# .env 文件配置
+ENABLE_DYNAMIC_ROUTING=true
+API_TOKEN=your-management-api-token
 
-**启用动态路由时：**
-- 必须提供 `Authorization` 头，否则返回 401 错误
-- 必须使用配置的 token，否则返回 401 错误
-- 匹配成功后路由到对应的 upstream URL
+# routes.txt 文件配置
+cr_1 http://backend1.example.com/api
+cr_2 http://backend2.example.com/claude-api
+cr_3 http://backend3.example.com
+```
 
-**未启用动态路由时：**
-- 所有请求使用 `UPSTREAM_URL` 配置的默认上游地址
-- 无需提供 `Authorization` 头
+**2. 默认模式（无需认证）：**
+
+```bash
+# .env 文件配置
+ENABLE_DYNAMIC_ROUTING=false
+UPSTREAM_URL=https://api.anthropic.com
+```
 
 #### 使用示例
 
-**配置示例：**
+**启用动态路由时的请求：**
 
 ```bash
-# .env 文件配置（包含不同的 base_path）
-UPSTREAM_URL=https://api.anthropic.com
-AUTH_ROUTE_MAP=cr_1->http://backend1.example.com/api,cr_2->http://backend2.example.com/claude-api,cr_3->http://backend3.example.com
-```
-
-**请求示例：**
-
-```bash
-# 使用 cr_1 token
-# 请求: /api/v1/messages
-# 转发: http://backend1.example.com/api/v1/messages
+# 使用 cr_1 token - 路由到 backend1
 curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: Bearer cr_1" \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "claude-sonnet-4-5-20250929", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# 使用 cr_2 token
-# 请求: /api/v1/messages
-# 转发: http://backend2.example.com/claude-api/v1/messages
+# 使用 cr_2 token - 路由到 backend2
 curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: cr_2" \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "claude-sonnet-4-5-20250929", "messages": [{"role": "user", "content": "Hello"}]}'
 
-# 使用 cr_3 token (无 base_path)
-# 请求: /api/v1/messages
-# 转发: http://backend3.example.com/v1/messages
-curl -X POST http://localhost/api/v1/messages \
-  -H "Authorization: cr_3" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
-
-# 使用无效的 token，返回 401 错误
+# 使用无效 token - 返回 401
 curl -X POST http://localhost/api/v1/messages \
   -H "Authorization: invalid_token" \
   -H "Content-Type: application/json" \
-  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{...}'
+```
+
+**默认模式下的请求（无需 Authorization）：**
+
+```bash
+curl -X POST http://localhost/api/v1/messages \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-5-20250929", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 **错误响应：**
@@ -240,6 +271,133 @@ curl -X POST http://localhost/api/v1/messages \
   "error": "Unauthorized",
   "message": "Invalid authorization token",
   "timestamp": "2025-11-12 10:30:45"
+}
+```
+
+#### 动态路由管理 API
+
+网关提供 RESTful API 接口管理路由配置，支持实时增删改查，无需重启服务。
+
+**所有管理接口都需要 API Token 认证：**
+
+```bash
+# 使用 X-API-Key 头
+curl -H "X-API-Key: your-token" http://localhost/route/list
+
+# 或使用 Authorization 头
+curl -H "Authorization: Bearer your-token" http://localhost/route/list
+```
+
+**1. 查看所有路由**
+
+```bash
+GET /route/list
+
+# 请求示例
+curl -H "X-API-Key: your-token" http://localhost/route/list
+
+# 响应示例
+{
+  "routes": [
+    {"token": "cr_1", "url": "http://backend1.example.com/api"},
+    {"token": "cr_2", "url": "http://backend2.example.com/claude-api"}
+  ],
+  "count": 2,
+  "timestamp": "2025-11-12 10:30:45"
+}
+```
+
+**2. 添加路由**
+
+```bash
+POST /route/add
+Content-Type: application/json
+
+{
+  "token": "cr_new",
+  "url": "http://new-backend.example.com/api"
+}
+
+# 请求示例
+curl -X POST http://localhost/route/add \
+  -H "X-API-Key: your-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "cr_new", "url": "http://new-backend.example.com/api"}'
+
+# 响应示例
+{
+  "success": true,
+  "message": "Route added successfully",
+  "token": "cr_new",
+  "url": "http://new-backend.example.com/api"
+}
+```
+
+**3. 删除路由**
+
+```bash
+POST /route/del
+Content-Type: application/json
+
+{
+  "token": "cr_old"
+}
+
+# 请求示例
+curl -X POST http://localhost/route/del \
+  -H "X-API-Key: your-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "cr_old"}'
+
+# 响应示例
+{
+  "success": true,
+  "message": "Route deleted successfully",
+  "token": "cr_old"
+}
+```
+
+**4. 更新路由**
+
+```bash
+POST /route/update
+Content-Type: application/json
+
+{
+  "token": "cr_1",
+  "url": "http://updated-backend.example.com/api"
+}
+
+# 请求示例
+curl -X POST http://localhost/route/update \
+  -H "X-API-Key: your-token" \
+  -H "Content-Type: application/json" \
+  -d '{"token": "cr_1", "url": "http://updated-backend.example.com/api"}'
+
+# 响应示例
+{
+  "success": true,
+  "message": "Route updated successfully",
+  "token": "cr_1",
+  "url": "http://updated-backend.example.com/api"
+}
+```
+
+**5. 重新加载路由配置**
+
+```bash
+POST /route/reload
+
+# 请求示例
+curl -X POST http://localhost/route/reload \
+  -H "X-API-Key: your-token"
+
+# 响应示例
+{
+  "success": true,
+  "message": "Routes reloaded successfully",
+  "loaded": 3,
+  "errors": 0
 }
 ```
 
@@ -318,6 +476,109 @@ X-API-Key: your-token-here
 **响应示例：**
 ```text
 Keyword deleted: badword
+```
+
+### 6. 查看所有路由（需要鉴权）
+
+```bash
+GET /route/list
+X-API-Key: your-token-here
+```
+
+**响应示例：**
+```json
+{
+  "routes": [
+    {"token": "cr_1", "url": "http://backend1.example.com/api"},
+    {"token": "cr_2", "url": "http://backend2.example.com/claude-api"}
+  ],
+  "count": 2,
+  "timestamp": "2025-11-12 10:30:45"
+}
+```
+
+### 7. 添加路由（需要鉴权）
+
+```bash
+POST /route/add
+X-API-Key: your-token-here
+Content-Type: application/json
+
+{
+  "token": "cr_new",
+  "url": "http://new-backend.example.com/api"
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "message": "Route added successfully",
+  "token": "cr_new",
+  "url": "http://new-backend.example.com/api"
+}
+```
+
+### 8. 删除路由（需要鉴权）
+
+```bash
+POST /route/del
+X-API-Key: your-token-here
+Content-Type: application/json
+
+{
+  "token": "cr_old"
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "message": "Route deleted successfully",
+  "token": "cr_old"
+}
+```
+
+### 9. 更新路由（需要鉴权）
+
+```bash
+POST /route/update
+X-API-Key: your-token-here
+Content-Type: application/json
+
+{
+  "token": "cr_1",
+  "url": "http://updated-backend.example.com/api"
+}
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "message": "Route updated successfully",
+  "token": "cr_1",
+  "url": "http://updated-backend.example.com/api"
+}
+```
+
+### 10. 重新加载路由配置（需要鉴权）
+
+```bash
+POST /route/reload
+X-API-Key: your-token-here
+```
+
+**响应示例：**
+```json
+{
+  "success": true,
+  "message": "Routes reloaded successfully",
+  "loaded": 3,
+  "errors": 0
+}
 ```
 
 ## 🔐 鉴权方式
@@ -457,26 +718,49 @@ make clean
 
 ## 🔧 高级配置
 
-### 持久化关键词文件
+### 持久化配置目录
 
-关键词文件路径支持通过 `KEYWORDS_FILE_DIR` 环境变量配置，默认挂载 `./openresty/keywords`：
+配置目录通过 `CONFIG_DIR` 环境变量配置，默认挂载 `./openresty` 目录到容器的 `/etc/openresty`：
 
 ```yaml
 volumes:
-  - ${KEYWORDS_FILE_DIR:-./openresty/keywords}:/etc/openresty
+  - ${CONFIG_DIR:-./openresty}:/etc/openresty
 ```
 
-**使用自定义路径：**
+**配置目录包含：**
+- `keywords.txt` - 关键词过滤配置
+- `routes.txt` - 路由配置（启用动态路由时使用）
+
+**使用自定义配置目录：**
 
 ```bash
 # 方式1: 在 .env 文件中配置
-KEYWORDS_FILE_DIR=/host/path/to
+CONFIG_DIR=/path/to/your/config
 
 # 方式2: 命令行指定
-KEYWORDS_FILE_DIR=/host/path/to docker compose up -d
+CONFIG_DIR=/path/to/your/config docker compose up -d
 ```
 
-修改宿主机上的关键词文件会自动同步到容器内。
+**配置文件格式：**
+
+`keywords.txt`：
+```text
+sensitive-word-1
+sensitive-word-2
+api-key-prefix
+```
+
+`routes.txt`：
+```text
+cr_1 http://backend1.example.com/api
+cr_2 http://backend2.example.com/claude-api
+cr_3 http://backend3.example.com
+```
+
+**配置热加载：**
+- **关键词**：通过 `/keyword/add`、`/keyword/del` API 动态管理，修改立即生效
+- **路由**：通过 `/route/add`、`/route/update`、`/route/del` API 动态管理，或通过 `/route/reload` API 重新加载文件
+- 修改宿主机上的配置文件会自动同步到容器内
 
 ## 🔍 关键词过滤功能详解
 
