@@ -12,6 +12,8 @@ services:
       - API_TOKEN=${API_TOKEN:-default-secret-token-please-change-me}
       # 上游服务地址（可选，默认为官方 API）
       - UPSTREAM_URL=${UPSTREAM_URL:-https://api.anthropic.com}
+      # Authorization 路由映射（可选，留空表示不启用动态路由）
+      - AUTH_ROUTE_MAP=${AUTH_ROUTE_MAP:-}
 
     # 端口映射
     ports:

@@ -25,6 +25,7 @@ eyJhbGciOiJIUzI1   # JWT Token 前缀
 
 - 🚀 **高性能关键词过滤**: 使用 Aho-Corasick 算法，O(m) 时间复杂度，支持敏感信息前缀匹配保护
 - 🔐 **API 鉴权保护**: 支持 API Token 认证，保护管理接口
+- 🎯 **动态路由**: 基于 Authorization 头智能路由到不同上游服务，支持多租户和多后端管理
 - 🔄 **请求代理**: 透明代理 Claude API 请求
 - 🛠️ **命令行管理工具**: 提供便捷的CLI工具管理关键字
 - 📊 **JSON 日志**: 结构化日志，便于分析和监控
@@ -110,6 +111,7 @@ make health
 |--------|------|--------|------|
 | `API_TOKEN` | API 鉴权 Token | `default-secret-token...` | ✅ 是 |
 | `UPSTREAM_URL` | 上游服务地址 | `https://api.anthropic.com` | ❌ 否 |
+| `AUTH_ROUTE_MAP` | Authorization 动态路由映射 | 空（不启用） | ❌ 否 |
 | `HOST_PORT` | 主机端口映射 | `80` | ❌ 否 |
 | `KEYWORDS_FILE_DIR` | 关键词文件目录（宿主机） | `./openresty/keywords` | ❌ 否 |
 | `DOCKER_NETWORK_NAME` | Docker 网络名称 | `claude-gateway-network` | ❌ 否 |
@@ -135,6 +137,86 @@ KEYWORDS_FILE_DIR=/path/to/your/custom
 # 或直接在命令行指定
 KEYWORDS_FILE_DIR=/path/to/your/custom docker compose up -d
 ```
+
+### Authorization 动态路由
+
+网关支持基于请求 `Authorization` 头动态路由到不同的上游服务，实现多租户或多后端服务的灵活管理。
+
+#### 配置方法
+
+在 `.env` 文件中配置 `AUTH_ROUTE_MAP` 环境变量：
+
+```bash
+# 格式：token1->url1,token2->url2,token3->url3,...
+AUTH_ROUTE_MAP=cr_1->http://1.1.1.1:8080,cr_2->http://1.1.1.1:8080,cr_3->http://2.2.2.2:8080,cr_4->http://2.2.2.2:8080,cr_5->http://3.3.3.3:8080
+```
+
+#### 配置说明
+
+- **多对一映射**：多个 authorization token 可以映射到同一个 upstream URL
+- **格式要求**：使用 `->` 分隔 token 和 URL，使用 `,` 分隔多个映射关系
+- **Bearer 支持**：请求时支持 `Authorization: Bearer token` 或 `Authorization: token` 两种格式
+- **启用条件**：只有配置了 `AUTH_ROUTE_MAP` 且不为空时，才启用动态路由功能
+
+#### 工作模式
+
+**启用动态路由时：**
+- 必须提供 `Authorization` 头，否则返回 401 错误
+- 必须使用配置的 token，否则返回 401 错误
+- 匹配成功后路由到对应的 upstream URL
+
+**未启用动态路由时：**
+- 所有请求使用 `UPSTREAM_URL` 配置的默认上游地址
+- 无需提供 `Authorization` 头
+
+#### 使用示例
+
+**配置示例：**
+
+```bash
+# .env 文件配置
+UPSTREAM_URL=https://api.anthropic.com
+AUTH_ROUTE_MAP=cr_1->http://backend1.example.com:8080,cr_2->http://backend2.example.com:8080
+```
+
+**请求示例：**
+
+```bash
+# 使用 cr_1 token，路由到 http://backend1.example.com:8080
+curl -X POST http://localhost/v1/messages \
+  -H "Authorization: Bearer cr_1" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# 使用 cr_2 token，路由到 http://backend2.example.com:8080
+curl -X POST http://localhost/v1/messages \
+  -H "Authorization: cr_2" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+
+# 使用无效的 token，返回 401 错误
+curl -X POST http://localhost/v1/messages \
+  -H "Authorization: invalid_token" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-3-5-sonnet-20241022", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**错误响应：**
+
+```json
+{
+  "error": "Unauthorized",
+  "message": "Invalid authorization token",
+  "timestamp": "2025-11-12 10:30:45"
+}
+```
+
+#### 应用场景
+
+- **多租户系统**：不同客户路由到不同的后端服务
+- **负载均衡**：手动分配不同用户到不同服务器
+- **A/B 测试**：部分用户路由到新版本服务
+- **服务隔离**：VIP 用户和普通用户使用不同的服务实例
 
 ## 🔌 API 接口
 
