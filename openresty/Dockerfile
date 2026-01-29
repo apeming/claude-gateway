@@ -30,6 +30,15 @@ RUN cd /tmp \
     && cd /tmp \
     && rm -rf lua-aho-corasick
 
+# 安装 lua-resty-http（HTTP 客户端库，用于重试机制）
+RUN cd /tmp \
+    && wget https://github.com/ledgetech/lua-resty-http/archive/refs/tags/v0.17.1.tar.gz \
+    && tar -xzf v0.17.1.tar.gz \
+    && cd lua-resty-http-0.17.1 \
+    && cp -r lib/resty/* /usr/local/openresty/site/lualib/resty/ \
+    && cd /tmp \
+    && rm -rf lua-resty-http-0.17.1 v0.17.1.tar.gz
+
 # 复制 Nginx 配置文件
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
