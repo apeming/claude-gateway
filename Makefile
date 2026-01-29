@@ -1,31 +1,51 @@
-.PHONY: help build up down restart logs ps clean token health health-quick host-up network-create fix-permissions deploy-safe deploy-with-init
+.PHONY: help build build-optimized build-cache verify-build up down restart logs ps clean token health health-quick host-up network-create fix-permissions deploy-safe deploy-with-init
 
 help:
 	@echo "Claude Gateway - Makefile Commands"
 	@echo ""
 	@echo "Basic commands:"
-	@echo "  make build     - 构建 Docker 镜像"
-	@echo "  make up        - 启动服务（默认网络模式）"
-	@echo "  make down      - 停止服务"
-	@echo "  make restart   - 重启服务"
-	@echo "  make logs      - 查看日志"
-	@echo "  make ps        - 查看服务状态"
-	@echo "  make health    - 检查服务健康状态（详细）"
-	@echo "  make health-quick - 快速健康检查"
-	@echo "  make shell     - 进入容器 shell"
+	@echo "  make build            - 构建 Docker 镜像（标准）"
+	@echo "  make build-optimized  - 优化构建（启用 BuildKit + 国内镜像）"
+	@echo "  make build-cache      - 利用缓存快速构建"
+	@echo "  make verify-build     - 验证构建优化效果"
+	@echo "  make up               - 启动服务（默认网络模式）"
+	@echo "  make down             - 停止服务"
+	@echo "  make restart          - 重启服务"
+	@echo "  make logs             - 查看日志"
+	@echo "  make ps               - 查看服务状态"
+	@echo "  make health           - 检查服务健康状态（详细）"
+	@echo "  make health-quick     - 快速健康检查"
+	@echo "  make shell            - 进入容器 shell"
 	@echo ""
 	@echo "Network commands:"
-	@echo "  make host-up   - 使用 host 网络模式启动"
+	@echo "  make host-up          - 使用 host 网络模式启动"
 	@echo "  make network-create NETWORK=name - 创建自定义网络"
 	@echo ""
 	@echo "Utility commands:"
-	@echo "  make token     - 生成随机 API Token"
-	@echo "  make clean     - 清理容器和镜像"
-	@echo "  make deploy    - 快速部署（构建+启动+健康检查）"
+	@echo "  make token            - 生成随机 API Token"
+	@echo "  make clean            - 清理容器和镜像"
+	@echo "  make deploy           - 快速部署（构建+启动+健康检查）"
 	@echo ""
 
 build:
 	docker compose build --no-cache
+
+# 优化构建（启用 BuildKit + 国内镜像加速）
+build-optimized:
+	@echo "🚀 启用 Docker BuildKit 优化构建..."
+	@export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 && \
+	docker compose build --progress=plain
+
+# 利用缓存快速构建
+build-cache:
+	@echo "⚡ 利用缓存快速构建..."
+	@export DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 && \
+	docker compose build
+
+# 验证构建优化效果
+verify-build:
+	@echo "🔍 验证构建优化效果..."
+	@./build-and-verify.sh claude-gateway:latest .
 
 up:
 	docker compose up -d

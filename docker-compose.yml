@@ -1,8 +1,8 @@
 services:
   claude-gateway:
     build:
-      context: ./openresty
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./openresty/Dockerfile
     image: claude-gateway:latest
     container_name: claude-gateway
 
@@ -14,6 +14,14 @@ services:
       - ENABLE_DYNAMIC_ROUTING=${ENABLE_DYNAMIC_ROUTING:-false}
       # 上游服务地址（ENABLE_DYNAMIC_ROUTING=false时使用）
       - UPSTREAM_URL=${UPSTREAM_URL:-https://api.anthropic.com}
+      # 数据库配置
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/gateway.db}
+      # JWT密钥
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-me-in-production}
+      # 飞书OAuth配置
+      - FEISHU_APP_ID=${FEISHU_APP_ID}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+      - FEISHU_REDIRECT_URI=${FEISHU_REDIRECT_URI:-http://localhost/login}
 
     # 端口映射
     ports:
@@ -23,6 +31,8 @@ services:
     volumes:
       # 持久化配置目录（包含 keywords.txt 和 routes.txt）
       - ${CONFIG_DIR:-./openresty}:/etc/openresty
+      # 持久化数据库
+      - ./data:/app/data
       # 持久化日志（可选）
       # - ./logs:/usr/local/openresty/nginx/logs
 
