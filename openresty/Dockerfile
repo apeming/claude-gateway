@@ -54,6 +54,9 @@ RUN apk add --no-cache zlib-dev \
 # 复制 Nginx 配置文件
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
+# 复制 Lua 模块
+COPY lua/ /usr/local/openresty/nginx/lua/
+
 # 设置默认环境变量
 ENV API_TOKEN=default-secret-token-please-change-me
 ENV UPSTREAM_URL=https://api.anthropic.com
