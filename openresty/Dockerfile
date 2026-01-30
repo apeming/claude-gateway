@@ -39,6 +39,18 @@ RUN cd /tmp \
     && cd /tmp \
     && rm -rf lua-resty-http-0.17.1 v0.17.1.tar.gz
 
+# 安装 lua-zlib（用于 gzip 解压缩）
+RUN apk add --no-cache zlib-dev \
+    && cd /tmp \
+    && wget https://github.com/brimworks/lua-zlib/archive/refs/tags/v1.2.tar.gz \
+    && tar -xzf v1.2.tar.gz \
+    && cd lua-zlib-1.2 \
+    && gcc -O2 -fPIC -I/usr/local/openresty/luajit/include/luajit-2.1 -c lua_zlib.c -o lua_zlib.o \
+    && gcc -shared -o zlib.so lua_zlib.o -lz \
+    && cp zlib.so /usr/local/openresty/site/lualib/ \
+    && cd /tmp \
+    && rm -rf lua-zlib-1.2 v1.2.tar.gz
+
 # 复制 Nginx 配置文件
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
