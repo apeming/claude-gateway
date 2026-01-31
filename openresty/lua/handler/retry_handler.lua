@@ -68,24 +68,47 @@ function _M.handle_with_retry(path_prefix, max_retries)
         local response_body = res.body
         local check_body = response_body
 
-        -- 如果是 gzip 压缩，解压一份副本用于检查
+        -- 如果是压缩格式，解压一份副本用于检查
         if response_body and res.headers["Content-Encoding"] then
             local encoding = res.headers["Content-Encoding"]:lower()
+            ngx.log(ngx.WARN, "[DEBUG] Response has Content-Encoding: ", encoding)
+
             if encoding == "gzip" then
                 local zlib = require "zlib"
                 local stream = zlib.inflate()
                 local decompressed, eof, bytes_in, bytes_out = stream(response_body)
                 if decompressed then
                     check_body = decompressed
+                    ngx.log(ngx.WARN, "[DEBUG] Gzip decompressed successfully, body length: ", #check_body)
                 else
-                    ngx.log(ngx.WARN, "Failed to decompress gzip response")
+                    ngx.log(ngx.WARN, "[DEBUG] Failed to decompress gzip response")
+                end
+            elseif encoding == "br" then
+                -- 使用 FFI 调用 brotli 解压
+                local ok, brotli = pcall(require, "utils.brotli")
+                if ok then
+                    local decompressed, err = brotli.decompress(response_body)
+                    if decompressed then
+                        check_body = decompressed
+                        ngx.log(ngx.WARN, "[DEBUG] Brotli decompressed successfully, body length: ", #check_body)
+                    else
+                        ngx.log(ngx.WARN, "[DEBUG] Failed to decompress brotli response: ", err or "unknown error")
+                    end
+                else
+                    ngx.log(ngx.WARN, "[DEBUG] Brotli module not available: ", brotli)
                 end
             end
         end
 
         -- 检查是否为 400 错误且响应体包含 "unavailable"
         if res.status == 400 then
+            ngx.log(ngx.WARN, "[DEBUG] Received 400 response, body is nil: ", (check_body == nil), ", body length: ", check_body and #check_body or 0)
+            if check_body and #check_body > 0 then
+                local body_preview = check_body:sub(1, 200)  -- 前200个字符
+                ngx.log(ngx.WARN, "[DEBUG] Response body preview: ", body_preview)
+            end
             if check_body and check_body:lower():find("unavailable") then
+                ngx.log(ngx.WARN, "[DEBUG] Found 'unavailable' in response body")
                 if retry_count < max_retries then
                     local delay = math.pow(2, retry_count)
                     ngx.log(ngx.WARN, "Received 400 with 'unavailable', retrying in ", delay, "s (attempt ", retry_count + 1, "/", max_retries, ")")
@@ -105,6 +128,7 @@ function _M.handle_with_retry(path_prefix, max_retries)
                 end
             else
                 -- 400 但不包含 unavailable，返回原始响应
+                ngx.log(ngx.WARN, "[DEBUG] 400 response but 'unavailable' not found in body")
                 ngx.status = res.status
                 for k, v in pairs(res.headers) do
                     local lower_k = k:lower()
