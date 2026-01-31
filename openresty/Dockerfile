@@ -58,9 +58,18 @@ RUN apk add --no-cache zlib-dev \
 # 安装 brotli 系统库（用于 brotli 解压缩，通过 FFI 调用）
 RUN apk add --no-cache brotli-dev brotli-libs
 
+# 安装 brotli 系统库（用于 brotli 解压缩，通过 FFI 调用）
+RUN apk add --no-cache brotli-dev brotli-libs
+
 # 复制 Nginx 配置文件和 Lua 模块
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 COPY brotli.lua /usr/local/openresty/site/lualib/brotli.lua
+
+# 复制 conf.d 配置目录
+COPY conf.d/ /usr/local/openresty/nginx/conf/conf.d/
+
+# 复制 Lua 模块
+COPY lua/ /usr/local/openresty/nginx/lua/
 
 # 设置默认环境变量
 ENV API_TOKEN=default-secret-token-please-change-me
