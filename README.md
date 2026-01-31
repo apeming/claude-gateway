@@ -1,6 +1,6 @@
 # Claude Gateway
 
-基于 OpenResty/Nginx + Lua 的高性能 Claude API 网关，提供关键词过滤、请求代理和 API 管理功能。
+基于 OpenResty/Nginx + Lua 的高性能 Claude API 网关，采用模块化架构，提供关键词过滤、动态路由、API Key 模式和智能重试等功能。
 
 ## 🛡️ 关键词过滤功能
 
@@ -23,14 +23,25 @@ eyJhbGciOiJIUzI1   # JWT Token 前缀
 
 ## ✨ 特性
 
+### 核心功能
+- 🏗️ **模块化架构**: Nginx 配置精简 74%（1041 行 → 269 行），采用 9 个独立 Lua 模块
+- 🔑 **双认证模式**: 支持 Authorization Token 和 x-api-key 两种认证方式
 - 🚀 **高性能关键词过滤**: 使用 Aho-Corasick 算法，O(m) 时间复杂度，支持敏感信息前缀匹配保护
+- 🎯 **动态路由**: 基于认证信息智能路由到不同上游服务，支持多租户和多后端管理
+- 🔄 **智能重试机制**: 支持 400 错误自动重试，指数退避策略，支持 Brotli/Gzip 解压
+- 📡 **流式响应**: 完整支持 SSE 流式响应，实时传输数据
+
+### 管理与监控
+- 🛠️ **RESTful 管理 API**: 动态管理关键词和路由，无需重启服务
 - 🔐 **API 鉴权保护**: 支持 API Token 认证，保护管理接口
-- 🎯 **动态路由**: 基于 Authorization 头智能路由到不同上游服务，支持多租户和多后端管理
-- 🔄 **请求代理**: 透明代理 Claude API 请求
-- 🛠️ **命令行管理工具**: 提供便捷的CLI工具管理关键字
 - 📊 **JSON 日志**: 结构化日志，便于分析和监控
 - 🏥 **健康检查**: 内置健康检查端点，支持容器编排
+- 🧪 **完整测试套件**: 提供 API 和 API Key 模式的完整测试用例
+
+### 部署与工具
 - 🐳 **容器化部署**: 完整的 Docker/Docker Compose 支持
+- 🛠️ **命令行管理工具**: 提供便捷的 CLI 工具管理关键字
+- 📚 **完善文档**: 包含架构文档、测试文档和快速启动指南
 
 ## 📁 项目结构
 
@@ -42,6 +53,16 @@ claude-gateway/
 ├── Makefile                 # 便捷命令工具
 ├── README.md                # 项目文档（本文件）
 ├── QUICKSTART.md            # 快速启动指南
+├── docs/                    # 文档目录
+│   ├── ARCHITECTURE.md      # 架构设计文档
+│   └── README.md            # 文档索引
+├── tests/                   # 测试套件
+│   ├── README.md            # 测试说明
+│   ├── TEST_API.md          # Authorization Token 模式测试
+│   ├── TEST_APIKEY.md       # API Key 模式测试
+│   ├── test_api.js          # API 测试脚本
+│   ├── test_apikey.js       # API Key 测试脚本
+│   └── package.json         # Node.js 依赖
 ├── tools/                   # 关键字管理工具
 │   ├── keywords             # CLI工具执行脚本
 │   ├── keywords.py          # Python CLI实现
@@ -51,12 +72,75 @@ claude-gateway/
 │   └── README.md            # 工具使用说明
 └── openresty/               # OpenResty 相关文件
     ├── Dockerfile           # Docker 镜像构建
-    ├── nginx.conf           # Nginx 配置
+    ├── nginx.conf           # Nginx 配置（模块化，269 行）
+    ├── conf.d/              # Nginx 配置片段
+    │   └── default.conf     # 默认配置
     ├── keywords.txt         # 关键词配置文件
-    └── routes.txt           # 路由配置文件
+    ├── routes.txt           # 路由配置文件
+    └── lua/                 # Lua 模块（模块化架构）
+        ├── utils/           # 工具模块
+        │   ├── body_reader.lua      # 请求体读取（支持大文件）
+        │   └── brotli.lua           # Brotli 解压缩
+        ├── filter/          # 过滤器模块
+        │   └── keyword_filter.lua   # 关键词过滤（AC 自动机）
+        ├── router/          # 路由模块
+        │   └── dynamic_router.lua   # 动态路由
+        ├── proxy/           # 代理模块
+        │   └── http_proxy.lua       # HTTP 代理（流式/非流式）
+        ├── handler/         # 处理器模块
+        │   ├── api_handler.lua      # API 请求处理
+        │   └── retry_handler.lua    # 重试处理
+        └── admin/           # 管理模块
+            ├── health_check.lua     # 健康检查
+            ├── keyword_manager.lua  # 关键词管理
+            └── route_manager.lua    # 路由管理
 ```
 
 ## 🚀 快速开始
+
+### 模块化架构亮点
+
+本项目采用高度模块化的 Lua 架构，相比传统的单体 nginx.conf 配置：
+
+- **代码精简**: Nginx 配置从 1041 行减少到 269 行（**减少 74%**）
+- **零重复**: 所有公共逻辑抽取为独立模块，完全消除代码重复
+- **易维护**: 每个模块职责单一，修改只需改对应模块
+- **易测试**: 每个模块可独立测试，提供完整测试套件
+- **易扩展**: 新增功能只需添加新模块，不影响现有代码
+
+**模块组织：**
+```
+lua/
+├── utils/      # 工具模块（body_reader, brotli）
+├── filter/     # 过滤器（keyword_filter）
+├── router/     # 路由（dynamic_router）
+├── proxy/      # 代理（http_proxy）
+├── handler/    # 处理器（api_handler, retry_handler）
+└── admin/      # 管理（health_check, keyword_manager, route_manager）
+```
+
+详细架构说明请参考：[架构设计文档](docs/ARCHITECTURE.md)
+
+### 双认证模式
+
+网关支持两种认证模式，满足不同使用场景：
+
+**1. Authorization Token 模式** - 适用于自定义 Token 场景
+```bash
+curl -X POST http://localhost/api/v1/messages \
+  -H "Authorization: Bearer your-custom-token" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-5-20250929", "messages": [...]}'
+```
+
+**2. API Key 模式** - 兼容 Anthropic 官方 API
+```bash
+curl -X POST http://localhost/apikey/v1/messages \
+  -H "x-api-key: your-api-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-opus-4-5-20251101", "messages": [...]}'
+```
 
 ### 1. 环境准备
 
@@ -412,6 +496,16 @@ curl -X POST http://localhost/route/reload \
 
 ## 🔌 API 接口
 
+### API 端点概览
+
+网关提供三种 API 端点，支持不同的认证方式和功能特性：
+
+| 端点 | 认证方式 | 动态路由 | 重试机制 | 流式响应 | 使用场景 |
+|------|---------|---------|---------|---------|---------|
+| `/api/v1/messages` | Authorization Bearer | ✅ | ✅ (10次) | ✅ | 标准 Claude API，带重试 |
+| `/apikey/v1/messages` | x-api-key | ✅ | ✅ | ✅ | Anthropic API Key 模式 |
+| `/api/*` | Authorization Bearer | ✅ | ❌ | ✅ | 其他 API 端点（通用代理） |
+
 ### 1. 健康检查（无需鉴权）
 
 ```bash
@@ -423,27 +517,111 @@ GET /health
 {
   "status": "healthy",
   "service": "claude-gateway",
-  "timestamp": "2025-10-29 11:30:45",
+  "timestamp": "2025-01-31 10:30:45",
   "keywords_loaded": 2,
   "keyword_version": 1,
-  "auth_configured": true
+  "auth_configured": true,
+  "routing_enabled": true,
+  "routes_loaded": 3,
+  "upstream_url": "dynamic"
 }
 ```
 
-### 2. 业务接口（无需鉴权）
+### 2. Claude API 端点（Authorization Token 模式）
+
+**标准 Claude API 请求（带重试机制）：**
 
 ```bash
-POST /
+POST /api/v1/messages
+Authorization: Bearer your-token
 Content-Type: application/json
 
 {
   "model": "claude-sonnet-4-5-20250929",
+  "max_tokens": 1024,
   "messages": [{"role": "user", "content": "Hello"}]
 }
 ```
 
-### 3. 查看关键词（需要鉴权）
+**流式请求：**
+```bash
+POST /api/v1/messages
+Authorization: Bearer your-token
+Content-Type: application/json
 
+{
+  "model": "claude-sonnet-4-5-20250929",
+  "max_tokens": 1024,
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": true
+}
+```
+
+**特性：**
+- ✅ 支持 400 错误自动重试（最多 10 次）
+- ✅ 指数退避策略（2^n 秒）
+- ✅ 支持 Brotli/Gzip 压缩响应解压
+- ✅ 关键词过滤
+- ✅ 动态路由
+
+### 3. Anthropic API Key 模式
+
+**使用 x-api-key 认证：**
+
+```bash
+POST /apikey/v1/messages
+x-api-key: your-api-key
+anthropic-version: 2023-06-01
+Content-Type: application/json
+
+{
+  "model": "claude-opus-4-5-20251101",
+  "max_tokens": 1024,
+  "messages": [{"role": "user", "content": "Hello"}]
+}
+```
+
+**流式请求：**
+```bash
+POST /apikey/v1/messages
+x-api-key: your-api-key
+anthropic-version: 2023-06-01
+Content-Type: application/json
+
+{
+  "model": "claude-opus-4-5-20251101",
+  "max_tokens": 1024,
+  "messages": [{"role": "user", "content": "Hello"}],
+  "stream": true
+}
+```
+
+**特性：**
+- ✅ 兼容 Anthropic 官方 API
+- ✅ 支持流式和非流式响应
+- ✅ 关键词过滤
+- ✅ 动态路由
+- ✅ 自动重试机制
+
+### 4. 其他 API 端点（通用代理）
+
+```bash
+POST /api/*
+Authorization: Bearer your-token
+Content-Type: application/json
+
+{...}
+```
+
+**特性：**
+- ✅ 支持所有 Claude API 端点
+- ✅ 关键词过滤
+- ✅ 动态路由
+- ✅ 高性能代理
+
+### 5. 关键词管理 API（需要鉴权）
+
+**查看关键词：**
 ```bash
 GET /keyword/list
 X-API-Key: your-token-here
@@ -454,8 +632,7 @@ X-API-Key: your-token-here
 Keywords: word1, word2, word3
 ```
 
-### 4. 添加关键词（需要鉴权）
-
+**添加关键词：**
 ```bash
 GET /keyword/add?kw=badword
 X-API-Key: your-token-here
@@ -466,8 +643,7 @@ X-API-Key: your-token-here
 Keyword added: badword
 ```
 
-### 5. 删除关键词（需要鉴权）
-
+**删除关键词：**
 ```bash
 GET /keyword/del?kw=badword
 X-API-Key: your-token-here
@@ -478,8 +654,9 @@ X-API-Key: your-token-here
 Keyword deleted: badword
 ```
 
-### 6. 查看所有路由（需要鉴权）
+### 6. 路由管理 API（需要鉴权）
 
+**查看所有路由：**
 ```bash
 GET /route/list
 X-API-Key: your-token-here
@@ -493,12 +670,11 @@ X-API-Key: your-token-here
     {"token": "cr_2", "url": "http://backend2.example.com/claude-api"}
   ],
   "count": 2,
-  "timestamp": "2025-11-12 10:30:45"
+  "timestamp": "2025-01-31 10:30:45"
 }
 ```
 
-### 7. 添加路由（需要鉴权）
-
+**添加路由：**
 ```bash
 POST /route/add
 X-API-Key: your-token-here
@@ -520,8 +696,7 @@ Content-Type: application/json
 }
 ```
 
-### 8. 删除路由（需要鉴权）
-
+**删除路由：**
 ```bash
 POST /route/del
 X-API-Key: your-token-here
@@ -541,8 +716,7 @@ Content-Type: application/json
 }
 ```
 
-### 9. 更新路由（需要鉴权）
-
+**更新路由：**
 ```bash
 POST /route/update
 X-API-Key: your-token-here
@@ -564,8 +738,7 @@ Content-Type: application/json
 }
 ```
 
-### 10. 重新加载路由配置（需要鉴权）
-
+**重新加载路由配置：**
 ```bash
 POST /route/reload
 X-API-Key: your-token-here
@@ -654,6 +827,51 @@ keywords import new-keywords.txt
 ```
 
 > 📚 详细使用说明请参考：[tools/README.md](tools/README.md)
+
+## 🧪 测试
+
+项目提供完整的测试套件，覆盖两种认证模式：
+
+### 测试套件
+
+**1. Authorization Token 模式测试** (`tests/test_api.js`)
+- 非流式请求测试
+- 流式响应测试
+- 无效 Token 测试
+- 缺失 Token 测试
+- 关键词过滤测试
+
+**2. API Key 模式测试** (`tests/test_apikey.js`)
+- 非流式请求测试
+- 流式响应测试
+- 无效 API Key 测试
+- 缺失 API Key 测试
+- 关键词过滤测试
+
+### 运行测试
+
+```bash
+# 进入测试目录
+cd tests/
+
+# 安装依赖
+npm install
+
+# 配置测试环境
+# 编辑测试文件，设置正确的 API Key 和 Token
+
+# 运行 API 模式测试
+node test_api.js
+
+# 运行 API Key 模式测试
+node test_apikey.js
+```
+
+### 测试文档
+
+- [测试说明](tests/README.md) - 测试套件总览
+- [API 模式测试](tests/TEST_API.md) - Authorization Token 模式详细测试
+- [API Key 模式测试](tests/TEST_APIKEY.md) - x-api-key 模式详细测试
 
 ## 🛠️ 常用命令
 
@@ -767,6 +985,37 @@ cr_3 http://backend3.example.com
 ### 核心功能
 
 本系统提供强大的关键词过滤机制，可有效防止敏感信息被意外发送到第三方服务器。当检测到请求内容包含配置的关键词时，系统会立即拦截请求并返回错误响应。
+
+### 智能重试机制
+
+网关内置智能重试机制，自动处理临时性错误：
+
+**重试策略：**
+- **触发条件**: HTTP 400 错误且响应包含 "unavailable"
+- **重试次数**: 最多 10 次
+- **退避策略**: 指数退避（2^n 秒，n 为重试次数）
+- **压缩支持**: 自动解压 Brotli/Gzip 编码的响应
+
+**重试流程：**
+```
+请求 → 关键词过滤 → 发送请求 → 收到 400 错误
+                                    ↓
+                            检查响应内容
+                                    ↓
+                        包含 "unavailable"?
+                                    ↓
+                    是 → 等待 2^n 秒 → 重试（最多10次）
+                    否 → 直接返回错误
+```
+
+**支持的压缩格式：**
+- **Gzip**: 使用 zlib 库解压
+- **Brotli**: 使用 FFI 调用 libbrotlidec 库解压
+
+**使用场景：**
+- Claude API 服务临时不可用
+- 上游服务器负载过高
+- 网络临时故障
 
 ### 敏感信息前缀保护
 
@@ -1182,11 +1431,38 @@ http {
 
 ## 📚 相关文档
 
+- [架构设计文档](docs/ARCHITECTURE.md) - 模块化架构详解
 - [快速启动指南](QUICKSTART.md) - 3 分钟快速上手
-- [Nginx 配置](openresty/nginx.conf) - 详细的配置文件
-- [Dockerfile](openresty/Dockerfile) - 镜像构建说明
+- [测试文档](tests/README.md) - 测试套件使用说明
+- [API 模式测试](tests/TEST_API.md) - Authorization Token 模式测试
+- [API Key 模式测试](tests/TEST_APIKEY.md) - x-api-key 模式测试
+- [CLI 工具文档](tools/README.md) - 关键词管理工具使用说明
 
 ## 📝 更新日志
+
+### v2.0.0 (2025-01-31)
+
+**重大更新 - 模块化架构重构**
+
+- ✅ **模块化架构**: Nginx 配置精简 74%（1041 行 → 269 行），采用 9 个独立 Lua 模块
+- ✅ **API Key 模式**: 新增 `/apikey/v1/messages` 端点，支持 x-api-key 认证
+- ✅ **智能重试机制**: 支持 400 错误自动重试，指数退避策略
+- ✅ **Brotli 支持**: 新增 Brotli 解压缩支持，处理压缩响应
+- ✅ **完整测试套件**: 提供 API 和 API Key 模式的完整测试用例
+- ✅ **大文件支持**: 优化请求体读取，支持超大请求体
+- ✅ **架构文档**: 新增详细的架构设计文档
+
+**模块列表：**
+- `utils/body_reader.lua` - 请求体读取（支持大文件）
+- `utils/brotli.lua` - Brotli 解压缩
+- `filter/keyword_filter.lua` - 关键词过滤（AC 自动机）
+- `router/dynamic_router.lua` - 动态路由
+- `proxy/http_proxy.lua` - HTTP 代理（流式/非流式）
+- `handler/api_handler.lua` - API 请求处理
+- `handler/retry_handler.lua` - 重试处理
+- `admin/health_check.lua` - 健康检查
+- `admin/keyword_manager.lua` - 关键词管理
+- `admin/route_manager.lua` - 路由管理
 
 ### v1.0.0 (2025-10-29)
 
