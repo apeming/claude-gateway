@@ -1,5 +1,8 @@
 FROM openresty/openresty:alpine
 
+# 使用阿里云镜像源
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
 # 安装必要的工具（包括编译工具用于lua-aho-corasick）
 RUN apk add --no-cache \
     wget \
@@ -20,39 +23,44 @@ RUN mkdir -p /usr/local/openresty/nginx/logs \
 RUN ln -sf /dev/stdout /usr/local/openresty/nginx/logs/access.log \
     && ln -sf /dev/stderr /usr/local/openresty/nginx/logs/error.log
 
+# 复制预下载的库文件
+COPY libs/ /tmp/libs/
+
 # 安装 lua-aho-corasick（Aho-Corasick算法实现，用于高性能关键字匹配）
-RUN cd /tmp \
-    && git clone --depth=1 https://github.com/cloudflare/lua-aho-corasick.git \
-    && cd lua-aho-corasick \
+RUN cd /tmp/libs \
+    && unzip lua-aho-corasick.zip \
+    && cd lua-aho-corasick-master \
     && make \
     && make install LUA_INCLUDE_DIR=/usr/local/openresty/luajit/include/luajit-2.1 \
     && cp ahocorasick.so /usr/local/openresty/site/lualib/ \
     && cd /tmp \
-    && rm -rf lua-aho-corasick
+    && rm -rf /tmp/libs/lua-aho-corasick-master
 
 # 安装 lua-resty-http（HTTP 客户端库，用于重试机制）
-RUN cd /tmp \
-    && wget https://github.com/ledgetech/lua-resty-http/archive/refs/tags/v0.17.1.tar.gz \
-    && tar -xzf v0.17.1.tar.gz \
+RUN cd /tmp/libs \
+    && tar -xzf lua-resty-http.tar.gz \
     && cd lua-resty-http-0.17.1 \
     && cp -r lib/resty/* /usr/local/openresty/site/lualib/resty/ \
     && cd /tmp \
-    && rm -rf lua-resty-http-0.17.1 v0.17.1.tar.gz
+    && rm -rf /tmp/libs/lua-resty-http-0.17.1
 
 # 安装 lua-zlib（用于 gzip 解压缩）
 RUN apk add --no-cache zlib-dev \
-    && cd /tmp \
-    && wget https://github.com/brimworks/lua-zlib/archive/refs/tags/v1.2.tar.gz \
-    && tar -xzf v1.2.tar.gz \
+    && cd /tmp/libs \
+    && tar -xzf lua-zlib.tar.gz \
     && cd lua-zlib-1.2 \
     && gcc -O2 -fPIC -I/usr/local/openresty/luajit/include/luajit-2.1 -c lua_zlib.c -o lua_zlib.o \
     && gcc -shared -o zlib.so lua_zlib.o -lz \
     && cp zlib.so /usr/local/openresty/site/lualib/ \
     && cd /tmp \
-    && rm -rf lua-zlib-1.2 v1.2.tar.gz
+    && rm -rf /tmp/libs/lua-zlib-1.2
 
-# 复制 Nginx 配置文件
+# 安装 brotli 系统库（用于 brotli 解压缩，通过 FFI 调用）
+RUN apk add --no-cache brotli-dev brotli-libs
+
+# 复制 Nginx 配置文件和 Lua 模块
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+COPY brotli.lua /usr/local/openresty/site/lualib/brotli.lua
 
 # 设置默认环境变量
 ENV API_TOKEN=default-secret-token-please-change-me
