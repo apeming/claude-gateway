@@ -6,6 +6,7 @@
  *
  * 环境变量:
  * - ANTHROPIC_AUTH_TOKEN: API Key
+ * - ANTHROPIC_MODEL: 模型名称 (默认: claude-sonnet-4-5-20250929)
  * - GATEWAY_URL: 网关地址 (默认: http://127.0.0.1:18888)
  * - API_TOKEN: 管理接口 Token (用于测试关键字过滤)
  */
@@ -52,6 +53,7 @@ function loadApiTokenFromConfig() {
 // 从环境变量读取配置
 const API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:18888';
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929';
 
 // API_TOKEN 优先从环境变量读取，如果没有则从配置文件读取
 const API_TOKEN = process.env.API_TOKEN || loadApiTokenFromConfig();
@@ -124,7 +126,7 @@ async function testNonStreaming() {
     console.log('发送测试消息...');
 
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: MODEL,
       max_tokens: 200,
       messages: [
         {
@@ -161,7 +163,7 @@ async function testStreaming() {
     console.log('发送测试消息（流式）...');
 
     const stream = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: MODEL,
       max_tokens: 200,
       stream: true,
       messages: [
@@ -210,7 +212,7 @@ async function testInvalidApiKey() {
     console.log('使用无效 API Key 发送请求...');
 
     await invalidClient.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: MODEL,
       max_tokens: 100,
       messages: [
         {
@@ -253,7 +255,7 @@ async function testMissingApiKey() {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5-20250929',
+        model: MODEL,
         max_tokens: 100,
         messages: [
           {
@@ -302,7 +304,7 @@ async function testKeywordFilter() {
     // 发送包含关键字的请求
     console.log('发送包含关键字的请求...');
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: MODEL,
       max_tokens: 100,
       messages: [
         {
@@ -348,7 +350,7 @@ async function testKeywordFilterAfterDelete() {
     // 发送包含已删除关键字的请求
     console.log('发送包含已删除关键字的请求...');
     const message = await client.messages.create({
-      model: 'claude-sonnet-4-5-20250929',
+      model: MODEL,
       max_tokens: 100,
       messages: [
         {

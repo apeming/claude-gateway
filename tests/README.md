@@ -79,6 +79,15 @@ export ANTHROPIC_AUTH_TOKEN=your-token
 npm run test:apikey
 ```
 
+#### 自定义模型
+
+```bash
+# 使用不同的模型进行测试
+export ANTHROPIC_MODEL=claude-opus-4-5-20251101
+export ANTHROPIC_AUTH_TOKEN=your-token
+npm run test:apikey
+```
+
 ## 测试列表
 
 ### 1. API Key 模式测试 (`test_apikey.js`)
@@ -120,6 +129,7 @@ npm run test:apikey
 | 变量 | 用途 | 必需 | 说明 |
 |------|------|------|------|
 | `ANTHROPIC_AUTH_TOKEN` | API Key 或 Auth Token | ✅ | 用于业务请求 |
+| `ANTHROPIC_MODEL` | 模型名称 | ❌ | 默认: claude-sonnet-4-5-20250929 |
 | `API_TOKEN` | 管理接口 Token | ❌ | 用于测试关键字过滤，优先从环境变量读取，否则从配置文件读取 |
 | `GATEWAY_URL` | 网关地址 | ❌ | 默认: http://127.0.0.1:18888 |
 
