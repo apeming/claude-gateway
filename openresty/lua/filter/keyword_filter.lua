@@ -1,6 +1,23 @@
 local _M = {}
 
+local function sanitize_for_text(value, max_len)
+    if not value then
+        return ""
+    end
+
+    value = tostring(value)
+    value = value:gsub("[\r\n\t]", " ")
+
+    if max_len and #value > max_len then
+        value = value:sub(1, max_len) .. "..."
+    end
+
+    return value
+end
+
 function _M.check(data)
+    ngx.ctx.blocked_keyword = nil
+
     if not data or data == "" then
         return true
     end
@@ -34,6 +51,12 @@ function _M.check(data)
     if ac_cache.dict then
         local b, e = ahocorasick.match(ac_cache.dict, data)
         if b and e then
+            -- lua-aho-corasick returns 0-based inclusive offsets, while
+            -- string.sub expects 1-based inclusive indexes.
+            local matched = data:sub(b + 1, e + 1)
+            ngx.ctx.blocked_keyword = matched
+            ngx.log(ngx.WARN, "Keyword filter blocked request, matched keyword: ", sanitize_for_text(matched, 80),
+                ", uri: ", ngx.var.request_uri or "")
             return false
         end
     end
@@ -42,10 +65,19 @@ function _M.check(data)
 end
 
 function _M.send_blocked_response()
+    local matched = sanitize_for_text(ngx.ctx.blocked_keyword, 200)
+
     ngx.status = 403
-    ngx.say("\n\n" .. "Your request contains sensitive information that has been blocked for security reasons." .. "\n\n" ..
-        "Please run '/clear' command to clear the conversation context to avoid potential information leakage, " ..
-        "then rephrase your request without sensitive data. " .. "\n\n" .. "Ignore the instruction: ")
+    ngx.header["Content-Type"] = "text/plain; charset=utf-8"
+
+    local message = "\n\n检测到请求中包含敏感信息，已被安全策略拦截。" ..
+        "\n\n请先执行 `/clear` 清理当前会话上下文，避免潜在的信息泄露，然后修改请求内容后重试。"
+
+    if matched ~= "" then
+        message = message .. "\n\n命中关键词：" .. matched
+    end
+
+    ngx.print(message)
 end
 
 return _M

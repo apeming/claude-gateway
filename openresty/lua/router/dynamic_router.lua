@@ -1,12 +1,20 @@
 local _M = {}
 
+local function get_default_upstream(config_dict, path_prefix)
+    if path_prefix == "/openai" or path_prefix == "/openai/v1" then
+        return config_dict:get("openai_upstream_url") or "https://api.openai.com/v1"
+    end
+
+    return config_dict:get("upstream_url") or "https://api.anthropic.com"
+end
+
 -- 基于 Authorization token 的路由
 function _M.route_by_auth_token(path_prefix)
     local config_dict = ngx.shared.api_config
     local auth_route_enabled = config_dict:get("auth_route_enabled")
 
     if auth_route_enabled ~= "true" then
-        local upstream_url = config_dict:get("upstream_url") or "https://api.anthropic.com"
+        local upstream_url = get_default_upstream(config_dict, path_prefix)
         return _M.build_full_url(upstream_url, path_prefix, ngx.var.request_uri)
     end
 
@@ -49,7 +57,7 @@ function _M.route_by_api_key(path_prefix)
     local auth_route_enabled = config_dict:get("auth_route_enabled")
 
     if auth_route_enabled ~= "true" then
-        local upstream_url = config_dict:get("upstream_url") or "https://api.anthropic.com"
+        local upstream_url = get_default_upstream(config_dict, path_prefix)
         return _M.build_full_url(upstream_url, path_prefix, ngx.var.request_uri)
     end
 

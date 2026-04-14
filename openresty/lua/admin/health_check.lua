@@ -39,10 +39,12 @@ function _M.check()
         "auth_configured": %s,
         "routing_enabled": %s,
         "routes_loaded": %d,
-        "upstream_url": "%s"
+        "upstream_url": "%s",
+        "openai_upstream_url": "%s"
     }]], ngx.localtime(), keyword_count, version, has_token and "true" or "false",
     (auth_route_enabled == "true") and "true" or "false", routes_count,
-    config_dict:get("upstream_url") or "dynamic"))
+    config_dict:get("upstream_url") or "dynamic",
+    config_dict:get("openai_upstream_url") or "dynamic"))
 end
 
 return _M

@@ -1,6 +1,6 @@
 # Claude Gateway
 
-基于 OpenResty/Nginx + Lua 的高性能 Claude API 网关，采用模块化架构，提供关键词过滤、动态路由、API Key 模式和智能重试等功能。
+基于 OpenResty/Nginx + Lua 的高性能 AI API 网关，采用模块化架构，提供关键词过滤、动态路由、Anthropic API 兼容、OpenAI/Codex 请求转发和智能重试等功能。
 
 ## 🛡️ 关键词过滤功能
 
@@ -198,6 +198,7 @@ make health
 | `API_TOKEN` | API 鉴权 Token | `default-secret-token...` | ✅ 是 |
 | `ENABLE_DYNAMIC_ROUTING` | 是否启用动态路由 | `false` | ❌ 否 |
 | `UPSTREAM_URL` | 上游服务地址（默认模式使用） | `https://api.anthropic.com` | ❌ 否 |
+| `OPENAI_UPSTREAM_URL` | OpenAI/Codex 上游地址（默认模式下 `/openai*` 使用） | `https://api.openai.com/v1` | ❌ 否 |
 | `HOST_PORT` | 主机端口映射 | `80` | ❌ 否 |
 | `CONFIG_DIR` | 配置目录（宿主机，包含配置文件） | `./openresty` | ❌ 否 |
 | `DOCKER_NETWORK_NAME` | Docker 网络名称 | `claude-gateway-network` | ❌ 否 |
@@ -250,13 +251,14 @@ CONFIG_DIR=/path/to/your/config docker compose up -d
 - ✅ Token 必须在 `routes.txt` 中配置
 - ✅ 从路由文件读取配置并路由到对应后端
 - ❌ 未匹配的 token 返回 401 错误
-- ℹ️ `UPSTREAM_URL` 配置被忽略
+- ℹ️ `UPSTREAM_URL` 和 `OPENAI_UPSTREAM_URL` 配置被忽略
 
 **模式 2：默认模式（无需认证）**
 
 当 `ENABLE_DYNAMIC_ROUTING=false` 时（默认）：
 - ✅ 无需 `Authorization` 认证
-- ✅ 所有请求使用 `UPSTREAM_URL` 配置
+- ✅ Claude/Anthropic 请求使用 `UPSTREAM_URL`
+- ✅ OpenAI/Codex 请求使用 `OPENAI_UPSTREAM_URL`
 - ℹ️ `routes.txt` 文件被忽略
 
 #### 路由配置文件
@@ -280,8 +282,10 @@ cr_3 http://backend3.example.com
 #### 路径替换规则
 
 **重要约定：**
-- 所有客户端请求必须使用 `/api/*` 路径格式
-- 网关会将请求中的 `/api` 前缀替换为 upstream 配置的 base_path
+- Claude/Anthropic 客户端使用 `/api/*` 路径格式
+- Codex 客户端推荐使用 `/openai/*` 路径格式
+- OpenAI SDK/兼容客户端使用 `/openai/v1/*` 路径格式
+- 网关会将请求中的前缀（`/api`、`/openai` 或 `/openai/v1`）替换为 upstream 配置的 base_path
 - 查询参数会自动保留
 
 **转换示例：**
@@ -292,6 +296,10 @@ cr_3 http://backend3.example.com
 | `/api/v1/messages` | cr_2 | `http://2.2.2.2/api/claude` | `http://2.2.2.2/api/claude/v1/messages` |
 | `/api/v1/messages` | cr_3 | `http://3.3.3.3` | `http://3.3.3.3/v1/messages` |
 | `/api/health?check=true` | cr_1 | `http://1.1.1.1/api` | `http://1.1.1.1/api/health?check=true` |
+| `/openai/responses` | cr_4 | `http://4.4.4.4/openai` | `http://4.4.4.4/openai/responses` |
+| `/openai/models` | cr_5 | `https://api.openai.com/v1` | `https://api.openai.com/v1/models` |
+| `/openai/v1/chat/completions` | cr_5 | `https://api.openai.com/v1` | `https://api.openai.com/v1/chat/completions` |
+| `/openai/v1/responses` | cr_6 | `http://6.6.6.6/openai` | `http://6.6.6.6/openai/responses` |
 
 #### 配置示例
 
@@ -314,6 +322,7 @@ cr_3 http://backend3.example.com
 # .env 文件配置
 ENABLE_DYNAMIC_ROUTING=false
 UPSTREAM_URL=https://api.anthropic.com
+OPENAI_UPSTREAM_URL=https://api.openai.com/v1
 ```
 
 #### 使用示例
@@ -498,13 +507,15 @@ curl -X POST http://localhost/route/reload \
 
 ### API 端点概览
 
-网关提供三种 API 端点，支持不同的认证方式和功能特性：
+网关提供五种 API 端点，支持不同的认证方式和功能特性：
 
 | 端点 | 认证方式 | 动态路由 | 重试机制 | 流式响应 | 使用场景 |
 |------|---------|---------|---------|---------|---------|
 | `/api/v1/messages` | Authorization Bearer | ✅ | ✅ (10次) | ✅ | 标准 Claude API，带重试 |
 | `/apikey/v1/messages` | x-api-key | ✅ | ✅ | ✅ | Anthropic API Key 模式 |
 | `/api/*` | Authorization Bearer | ✅ | ❌ | ✅ | 其他 API 端点（通用代理） |
+| `/openai/*` | Authorization Bearer | ✅ | ❌ | ✅ (SSE) | OpenAI/Codex 兼容代理 |
+| `/openai/v1/*` | Authorization Bearer | ✅ | ❌ | ✅ (SSE) | OpenAI SDK 兼容代理 |
 
 ### 1. 健康检查（无需鉴权）
 
@@ -619,7 +630,86 @@ Content-Type: application/json
 - ✅ 动态路由
 - ✅ 高性能代理
 
-### 5. 关键词管理 API（需要鉴权）
+### 5. OpenAI / Codex 兼容端点
+
+网关同时提供两套 OpenAI 兼容入口：
+- `/openai/*`：给 Codex CLI 这类“自带路径拼接”的客户端使用
+- `/openai/v1/*`：给 OpenAI SDK 和通用 OpenAI 兼容客户端使用
+
+Codex CLI 的 `base_url` 应该配置为网关的 `/openai` 基路径；当 `wire_api = "responses"` 时，Codex 会在这个基路径后自动追加 `/responses`，因此实际请求路径会是 `/openai/responses`。网关提供 `/openai/*` 通用代理用于转发这类请求。
+
+**Codex 实际请求示例：**
+
+```bash
+POST /openai/responses
+Authorization: Bearer your-token
+Accept: text/event-stream
+Content-Type: application/json
+
+{
+  "model": "gpt-5.4",
+  "input": "say hello briefly",
+  "stream": true
+}
+```
+
+**网关基路径与实际请求路径：**
+- 基路径：`/openai`
+- 实际请求：`/openai/responses`
+- 其他兼容路径：`/openai/models`
+
+**常见转发路径：**
+- `/openai/responses`
+- `/openai/models`
+- `/openai/*`
+
+**Codex CLI 配置示例：**
+
+```toml
+model_provider = "gateway"
+preferred_auth_method = "apikey"
+
+[model_providers.gateway]
+name = "gateway"
+base_url = "http://your-gateway-host/openai"
+wire_api = "responses"
+requires_openai_auth = true
+env_key = "CODEX_GATEWAY_TOKEN"
+```
+
+不要把 `base_url` 配成 `http://your-gateway-host/openai/responses`，否则 Codex 会再追加一次 `/responses`，最终变成 `/openai/responses/responses`。
+
+**OpenAI SDK / 兼容客户端示例：**
+
+这类客户端通常会直接请求 `/v1/*`，为了避免占用网关根路径，兼容入口放在 `/openai/v1` 下，因此 `base_url` 应配置为包含 `/openai/v1`。
+
+```bash
+curl -X POST http://localhost/openai/v1/responses \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-token" \
+  -d '{
+    "model": "gpt-5.4",
+    "input": "say hello briefly"
+  }'
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="your-token",
+    base_url="http://your-gateway-host/openai/v1",
+)
+```
+
+**特性：**
+- ✅ 支持 OpenAI/Codex 兼容路径转发
+- ✅ 支持 `/openai/v1/*` OpenAI SDK 兼容入口
+- ✅ 支持 SSE 流式响应
+- ✅ 支持长连接（适合 Codex 会话）
+- ✅ 支持动态路由和关键词过滤
+
+### 6. 关键词管理 API（需要鉴权）
 
 **查看关键词：**
 ```bash

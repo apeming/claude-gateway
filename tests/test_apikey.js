@@ -372,6 +372,54 @@ async function testKeywordFilterAfterDelete() {
   }
 }
 
+async function testWithUserAgent() {
+  console.log('');
+  console.log('========================================');
+  console.log('测试 7: 使用 Anthropic/JS 0.32.1 User-Agent 头部');
+  console.log('========================================');
+  console.log('');
+
+  try {
+    console.log('发送带有 User-Agent 头部的请求...');
+
+    const response = await fetch(`${GATEWAY_URL}/apikey/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'x-api-key': API_KEY,
+        'User-Agent': 'Anthropic/JS 0.32.1',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 200,
+        messages: [
+          {
+            role: 'user',
+            content: 'Hello! Please respond with a short greeting.',
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    const message = await response.json();
+    console.log('✅ 请求成功！');
+    console.log('');
+    console.log('响应内容:');
+    console.log('---');
+    console.log(message.content[0].text);
+    console.log('---');
+  } catch (error) {
+    console.error('❌ 请求失败！');
+    console.error('错误信息:', error.message);
+    throw error;
+  }
+}
+
 async function main() {
   console.log('========================================');
   console.log('Claude Gateway /apikey/v1/messages 接口测试');
@@ -381,59 +429,96 @@ async function main() {
   console.log('');
 
   let passedTests = 0;
-  let totalTests = API_TOKEN ? 6 : 4;
+  let totalTests = API_TOKEN ? 7 : 5;
+  const failedTests = [];
 
+  // 测试 1: 非流式响应
   try {
-    // 测试 1: 非流式响应
     await testNonStreaming();
     passedTests++;
+  } catch (error) {
+    failedTests.push({ test: '测试 1: 非流式响应', error: error.message });
+  }
 
-    // 测试 2: 流式响应
+  // 测试 2: 流式响应
+  try {
     await testStreaming();
     passedTests++;
+  } catch (error) {
+    failedTests.push({ test: '测试 2: 流式响应', error: error.message });
+  }
 
-    // 测试 3: 无效的 API Key
+  // 测试 3: 无效的 API Key
+  try {
     await testInvalidApiKey();
     passedTests++;
+  } catch (error) {
+    failedTests.push({ test: '测试 3: 无效的 API Key', error: error.message });
+  }
 
-    // 测试 4: 缺少 API Key
+  // 测试 4: 缺少 API Key
+  try {
     await testMissingApiKey();
     passedTests++;
+  } catch (error) {
+    failedTests.push({ test: '测试 4: 缺少 API Key', error: error.message });
+  }
 
-    // 如果提供了 API_TOKEN，测试关键字过滤
-    if (API_TOKEN) {
-      // 测试 5: 关键字过滤（添加关键字并验证拦截）
+  // 测试 5: 使用 Anthropic/JS 0.32.1 User-Agent 头部
+  try {
+    await testWithUserAgent();
+    passedTests++;
+  } catch (error) {
+    failedTests.push({ test: '测试 5: 使用 Anthropic/JS 0.32.1 User-Agent 头部', error: error.message });
+  }
+
+  // 如果提供了 API_TOKEN，测试关键字过滤
+  if (API_TOKEN) {
+    // 测试 6: 关键字过滤（添加关键字并验证拦截）
+    try {
       await testKeywordFilter();
       passedTests++;
+    } catch (error) {
+      failedTests.push({ test: '测试 6: 关键字过滤', error: error.message });
+    }
 
-      // 测试 6: 删除关键字后验证通过
+    // 测试 7: 删除关键字后验证通过
+    try {
       await testKeywordFilterAfterDelete();
       passedTests++;
-    } else {
-      console.log('');
-      console.log('⚠️  跳过关键字过滤测试（未设置 API_TOKEN）');
+    } catch (error) {
+      failedTests.push({ test: '测试 7: 删除关键字后验证请求通过', error: error.message });
     }
-
+  } else {
     console.log('');
-    console.log('========================================');
+    console.log('⚠️  跳过关键字过滤测试（未设置 API_TOKEN）');
+  }
+
+  // 尝试清理测试关键字
+  if (API_TOKEN) {
+    try {
+      await deleteKeyword(TEST_KEYWORD);
+      console.log('✅ 已清理测试关键字');
+    } catch (e) {
+      // 忽略清理错误
+    }
+  }
+
+  console.log('');
+  console.log('========================================');
+  if (failedTests.length === 0) {
     console.log(`✅ 所有测试通过 (${passedTests}/${totalTests})`);
     console.log('========================================');
-  } catch (error) {
+  } else {
+    console.log(`❌ 部分测试失败 (${passedTests}/${totalTests} 通过)`);
+    console.log('========================================');
     console.log('');
-    console.log('========================================');
-    console.log(`❌ 测试失败 (${passedTests}/${totalTests} 通过)`);
-    console.log('========================================');
-
-    // 尝试清理测试关键字
-    if (API_TOKEN) {
-      try {
-        await deleteKeyword(TEST_KEYWORD);
-        console.log('✅ 已清理测试关键字');
-      } catch (e) {
-        // 忽略清理错误
-      }
+    console.log('失败的测试:');
+    for (const { test, error } of failedTests) {
+      console.log(`  ❌ ${test}`);
+      console.log(`     ${error}`);
     }
-
+    console.log('');
     process.exit(1);
   }
 }

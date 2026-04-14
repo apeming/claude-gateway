@@ -9,6 +9,7 @@ tests/
 ├── README.md                   # 本文件
 ├── TEST_APIKEY.md              # API Key 模式测试文档
 ├── TEST_API.md                 # 标准 API 模式测试文档
+├── test_openai.js              # OpenAI 兼容接口测试脚本
 ├── test_apikey.js              # API Key 模式测试脚本
 ├── test_api.js                 # 标准 API 模式测试脚本
 └── package.json                # Node.js 依赖配置
@@ -71,6 +72,14 @@ export API_TOKEN=your-api-token
 npm test
 ```
 
+#### OpenAI 兼容接口测试
+
+```bash
+export OPENAI_AUTH_TOKEN=your-openai-token
+export GATEWAY_URL=http://127.0.0.1:18888
+npm run test:openai
+```
+
 #### 自定义网关地址
 
 ```bash
@@ -115,6 +124,16 @@ npm run test:apikey
 **动态路由**: 需要在 routes.txt 中配置
 **详细文档**: [TEST_API.md](TEST_API.md)
 
+### 3. OpenAI 兼容接口测试 (`test_openai.js`)
+
+测试 `/openai/*` 和 `/openai/v1/*` 接口，包括：
+- ✅ `/openai/v1/models` 模型列表
+- ✅ `/openai/responses` 非流式响应
+- ✅ `/openai/v1/responses` 非流式响应
+
+**认证方式**: Authorization 头（Bearer token）
+**详细用途**: 验证 OpenAI 路径改写和代理转发
+
 ## 测试覆盖
 
 - ✅ 功能测试：验证正常请求流程
@@ -129,7 +148,9 @@ npm run test:apikey
 | 变量 | 用途 | 必需 | 说明 |
 |------|------|------|------|
 | `ANTHROPIC_AUTH_TOKEN` | API Key 或 Auth Token | ✅ | 用于业务请求 |
+| `OPENAI_AUTH_TOKEN` | OpenAI Bearer Token | OpenAI 测试必需 | 用于 `/openai*` 业务请求 |
 | `ANTHROPIC_MODEL` | 模型名称 | ❌ | 默认: claude-sonnet-4-5-20250929 |
+| `OPENAI_MODEL` | OpenAI 模型名称 | ❌ | 默认: gpt-5.4 |
 | `API_TOKEN` | 管理接口 Token | ❌ | 用于测试关键字过滤，优先从环境变量读取，否则从配置文件读取 |
 | `GATEWAY_URL` | 网关地址 | ❌ | 默认: http://127.0.0.1:18888 |
 

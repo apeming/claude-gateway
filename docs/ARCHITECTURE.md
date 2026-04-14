@@ -100,6 +100,16 @@ openresty/lua/
 - **动态路由**: 基于 Authorization token
 - **功能**: 关键词过滤、动态路由、高性能代理
 
+### 4. `/openai/*` - OpenAI / Codex 兼容 API（proxy_pass + SSE）
+- **认证方式**: Authorization token（Bearer token）
+- **动态路由**: 基于 Authorization token
+- **功能**: 关键词过滤、动态路由、SSE 流式转发、长连接支持
+
+### 5. `/openai/v1/*` - OpenAI SDK 兼容 API（proxy_pass + SSE）
+- **认证方式**: Authorization token（Bearer token）
+- **动态路由**: 基于 Authorization token
+- **功能**: 关键词过滤、动态路由、兼容 OpenAI SDK 默认路径、SSE 流式转发
+
 ## nginx.conf 精简示例
 
 **原来的 location 块（180+ 行）：**
@@ -152,6 +162,36 @@ curl -X POST http://localhost/apikey/v1/messages \
   }'
 ```
 
+### Codex / OpenAI Responses API 请求
+
+Codex CLI 需要把 `base_url` 指向网关的 `/openai` 基路径；启用 Responses wire API 后，客户端会自动追加 `/responses`，所以网关实际收到的请求是 `/openai/responses`。
+
+```bash
+curl -X POST http://localhost/openai/responses \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -H "Authorization: Bearer your-token" \
+  -d '{
+    "model": "gpt-5.4",
+    "input": "say hello briefly",
+    "stream": true
+  }'
+```
+
+### OpenAI SDK 兼容请求
+
+OpenAI SDK 或其他兼容客户端通常直接以 `/v1` 作为基路径，因此网关额外提供 `/openai/v1/*` 别名，便于直接对接且不占用根路径。
+
+```bash
+curl -X POST http://localhost/openai/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your-token" \
+  -d '{
+    "model": "gpt-5.4",
+    "messages": [{"role": "user", "content": "Say hello briefly"}]
+  }'
+```
+
 ## 配置说明
 
 ### 动态路由配置
@@ -164,13 +204,16 @@ your-api-key https://upstream2.example.com
 
 ### 环境变量
 - `ENABLE_DYNAMIC_ROUTING=true`: 启用动态路由
-- `UPSTREAM_URL`: 默认 upstream URL（未启用动态路由时使用）
+- `UPSTREAM_URL`: Claude/Anthropic 默认 upstream URL（未启用动态路由时使用）
+- `OPENAI_UPSTREAM_URL`: OpenAI/Codex 默认 upstream URL（未启用动态路由时 `/openai*` 使用）
 - `API_TOKEN`: 管理接口的认证 token
 
 ## 注意事项
 
-1. 流式响应目前使用 `request_uri` 实现，会等待完整响应后再转发
-2. 如需真正的流式代理，需要使用 `httpc:connect` + `httpc:request` + 循环读取
-3. 关键词过滤对所有请求生效
-4. 动态路由需要在 `routes.txt` 中配置映射关系
-5. 原 nginx.conf 已备份为 `nginx.conf.backup`
+1. `/openai/*` 使用 nginx `proxy_pass`，适合 Codex 的 SSE 长连接场景
+2. `/openai/v1/*` 是给 OpenAI SDK/兼容客户端准备的别名入口
+3. `/apikey/v1/messages` 当前仍使用 Lua `request_uri`，严格意义上不是真正的边读边转发
+4. 关键词过滤对所有请求生效
+5. 动态路由需要在 `routes.txt` 中配置映射关系
+6. OpenAI/Codex 上游地址建议配置为兼容基路径，如 `https://api.openai.com/v1` 或你的 `/openai` 兼容前缀
+7. Codex 配置中的 `base_url` 不要写成 `/openai/responses`，否则客户端会拼出重复的 `/responses`

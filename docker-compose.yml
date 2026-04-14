@@ -14,6 +14,8 @@ services:
       - ENABLE_DYNAMIC_ROUTING=${ENABLE_DYNAMIC_ROUTING:-false}
       # 上游服务地址（ENABLE_DYNAMIC_ROUTING=false时使用）
       - UPSTREAM_URL=${UPSTREAM_URL:-https://api.anthropic.com}
+      # OpenAI/Codex 上游服务地址（/openai* 默认模式使用）
+      - OPENAI_UPSTREAM_URL=${OPENAI_UPSTREAM_URL:-https://api.openai.com/v1}
 
     # 端口映射
     ports:
