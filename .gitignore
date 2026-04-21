@@ -42,3 +42,6 @@ logs/
 # Node.js
 tests/node_modules/
 tests/package-lock.json
+
+# Superpowers generated docs
+docs/superpowers/

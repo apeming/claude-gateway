@@ -1,5 +1,16 @@
 local _M = {}
 
+local function get_keyword_arg()
+    local args = ngx.req.get_uri_args(1)
+    local kw = args.kw
+
+    if type(kw) == "table" then
+        kw = kw[1]
+    end
+
+    return kw
+end
+
 -- 验证 API Token
 local function verify_token()
     local config_dict = ngx.shared.api_config
@@ -26,7 +37,7 @@ function _M.add()
         return
     end
 
-    local kw = ngx.var.arg_kw
+    local kw = get_keyword_arg()
     if not kw or kw == "" then
         ngx.say("Missing kw parameter")
         return
@@ -65,7 +76,7 @@ function _M.delete()
         return
     end
 
-    local kw = ngx.var.arg_kw
+    local kw = get_keyword_arg()
     if not kw or kw == "" then
         ngx.say("Missing kw parameter")
         return

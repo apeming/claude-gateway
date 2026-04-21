@@ -4,9 +4,8 @@
   "type": "module",
   "description": "Test suite for Claude Gateway",
   "scripts": {
-    "test": "node test_apikey.js && node test_api.js",
-    "test:apikey": "node test_apikey.js",
-    "test:api": "node test_api.js",
+    "test": "node test_keyword_admin.js",
+    "test:keyword-admin": "node test_keyword_admin.js",
     "test:openai": "node test_openai.js"
   },
   "dependencies": {
