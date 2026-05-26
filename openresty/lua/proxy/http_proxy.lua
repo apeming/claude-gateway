@@ -48,7 +48,7 @@ function _M.proxy(full_url, body)
     local headers = prepare_headers(full_url)
 
     local httpc = http.new()
-    httpc:set_timeouts(10000, 120000, 120000)
+    httpc:set_timeouts(10000, 600000, 600000)
 
     local res, err = httpc:request_uri(full_url, {
         method = ngx.var.request_method,

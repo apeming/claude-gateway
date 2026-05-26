@@ -218,9 +218,9 @@ Defined in `nginx.conf`:
 All management endpoints require authentication via `X-API-Key` or `Authorization` header.
 
 **Keyword Management**:
-- `GET /keyword/list` - List all keywords
-- `GET /keyword/add?kw=<keyword>` - Add keyword
-- `GET /keyword/del?kw=<keyword>` - Delete keyword
+- `GET /keywords` - List all keywords
+- `POST /keywords` - Add keyword from JSON body
+- `DELETE /keywords` - Delete keyword from JSON body
 
 **Route Management**:
 - `GET /route/list` - List all routes (JSON)

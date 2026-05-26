@@ -50,7 +50,7 @@ function _M.handle_with_retry(path_prefix, max_retries)
     local retry_count = 0
     while retry_count <= max_retries do
         local httpc = http.new()
-        httpc:set_timeouts(10000, 120000, 120000)
+        httpc:set_timeouts(10000, 600000, 600000)
 
         local res, err = httpc:request_uri(full_url, {
             method = ngx.var.request_method,

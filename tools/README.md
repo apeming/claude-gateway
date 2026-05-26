@@ -262,9 +262,9 @@ chmod +x keywords
 ### API接口
 
 关键字管理工具调用的API接口：
-- `GET /keyword/add?kw=<keyword>` - 添加关键字
-- `GET /keyword/del?kw=<keyword>` - 删除关键字
-- `GET /keyword/list` - 列出关键字
+- `POST /keywords` - 添加关键字（JSON 请求体：`{"keyword":"..."}`）
+- `DELETE /keywords` - 删除关键字（JSON 请求体：`{"keyword":"..."}`）
+- `GET /keywords` - 列出关键字
 - `GET /health` - 服务状态
 
 ## 📝 更新日志

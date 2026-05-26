@@ -713,7 +713,7 @@ client = OpenAI(
 
 **查看关键词：**
 ```bash
-GET /keyword/list
+GET /keywords
 X-API-Key: your-token-here
 ```
 
@@ -724,8 +724,11 @@ Keywords: word1, word2, word3
 
 **添加关键词：**
 ```bash
-GET /keyword/add?kw=badword
+POST /keywords
 X-API-Key: your-token-here
+Content-Type: application/json
+
+{"keyword":"badword"}
 ```
 
 **响应示例：**
@@ -735,8 +738,11 @@ Keyword added: badword
 
 **删除关键词：**
 ```bash
-GET /keyword/del?kw=badword
+DELETE /keywords
 X-API-Key: your-token-here
+Content-Type: application/json
+
+{"keyword":"badword"}
 ```
 
 **响应示例：**
@@ -850,13 +856,13 @@ X-API-Key: your-token-here
 
 ```bash
 # 方式1: X-API-Key 头
-curl -H "X-API-Key: your-token" http://localhost/keyword/list
+curl -H "X-API-Key: your-token" http://localhost/keywords
 
 # 方式2: Authorization Bearer 头
-curl -H "Authorization: Bearer your-token" http://localhost/keyword/list
+curl -H "Authorization: Bearer your-token" http://localhost/keywords
 
 # 方式3: Authorization 头（无 Bearer）
-curl -H "Authorization: your-token" http://localhost/keyword/list
+curl -H "Authorization: your-token" http://localhost/keywords
 ```
 
 ## 🛠️ 关键字管理CLI工具
@@ -1066,7 +1072,7 @@ cr_3 http://backend3.example.com
 ```
 
 **配置热加载：**
-- **关键词**：通过 `/keyword/add`、`/keyword/del` API 动态管理，修改立即生效
+- **关键词**：通过 `/keywords` API 动态管理，修改立即生效
 - **路由**：通过 `/route/add`、`/route/update`、`/route/del` API 动态管理，或通过 `/route/reload` API 重新加载文件
 - 修改宿主机上的配置文件会自动同步到容器内
 
@@ -1449,7 +1455,7 @@ docker compose version
 curl http://localhost/health | jq '.keywords_loaded'
 
 # 查看关键词列表
-curl -H "X-API-Key: token" http://localhost/keyword/list
+curl -H "X-API-Key: token" http://localhost/keywords
 
 # 检查容器内文件
 docker exec claude-gateway cat /etc/openresty/keywords.txt
@@ -1462,7 +1468,7 @@ docker exec claude-gateway cat /etc/openresty/keywords.txt
 docker exec claude-gateway env | grep API_TOKEN
 
 # 测试不同的请求头格式
-curl -v -H "X-API-Key: token" http://localhost/keyword/list
+curl -v -H "X-API-Key: token" http://localhost/keywords
 
 # 查看 Nginx 错误日志
 docker exec claude-gateway tail /usr/local/openresty/nginx/logs/error.log

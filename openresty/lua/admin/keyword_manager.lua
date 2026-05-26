@@ -1,14 +1,58 @@
+local cjson = require "cjson"
+
 local _M = {}
 
-local function get_keyword_arg()
-    local args = ngx.req.get_uri_args(1)
-    local kw = args.kw
+local function send_text(status, message)
+    ngx.status = status
+    ngx.header["Content-Type"] = "text/plain; charset=utf-8"
+    ngx.say(message)
+end
 
-    if type(kw) == "table" then
-        kw = kw[1]
+local function read_request_body()
+    ngx.req.read_body()
+
+    local body = ngx.req.get_body_data()
+    if body then
+        return body
     end
 
-    return kw
+    local body_file = ngx.req.get_body_file()
+    if not body_file then
+        return nil
+    end
+
+    local file = io.open(body_file, "r")
+    if not file then
+        return nil
+    end
+
+    local file_body = file:read("*a")
+    file:close()
+
+    return file_body
+end
+
+local function read_keyword_from_body()
+    local body = read_request_body()
+    if not body or body == "" then
+        return nil, "Missing keyword in request body"
+    end
+
+    local ok, payload = pcall(cjson.decode, body)
+    if not ok then
+        return nil, "Invalid JSON body"
+    end
+
+    if type(payload) ~= "table" or payload.keyword == nil then
+        return nil, "Missing keyword in request body"
+    end
+
+    local keyword = payload.keyword
+    if type(keyword) ~= "string" or keyword == "" then
+        return nil, "Missing keyword in request body"
+    end
+
+    return keyword
 end
 
 -- 验证 API Token
@@ -31,108 +75,111 @@ local function verify_token()
     return true
 end
 
--- 添加关键字
-function _M.add()
-    if not verify_token() then
-        return
-    end
-
-    local kw = get_keyword_arg()
-    if not kw or kw == "" then
-        ngx.say("Missing kw parameter")
-        return
-    end
-
+local function add_keyword(keyword)
     local dict = ngx.shared.keywords
-    if dict:get(kw) then
-        ngx.say("Keyword already exists: " .. kw)
+    if dict:get(keyword) then
+        send_text(200, "Keyword already exists: " .. keyword)
         return
     end
 
-    dict:set(kw, true)
+    dict:set(keyword, true)
 
-    -- 写入文件
     local file = "/etc/openresty/keywords.txt"
-    local f = io.open(file, "a+")
-    if f then
-        f:write(kw .. "\n")
-        f:close()
-    else
-        ngx.say("Failed to write file!")
+    local handle = io.open(file, "a+")
+    if not handle then
+        send_text(500, "Failed to write file!")
         return
     end
 
-    -- 更新版本号，触发AC自动机重建
+    handle:write(keyword .. "\n")
+    handle:close()
+
     local version_dict = ngx.shared.keyword_version
     local current_version = version_dict:get("version") or 0
     version_dict:set("version", current_version + 1)
 
-    ngx.say("Keyword added: " .. kw)
+    send_text(200, "Keyword added: " .. keyword)
 end
 
--- 删除关键字
-function _M.delete()
-    if not verify_token() then
-        return
-    end
-
-    local kw = get_keyword_arg()
-    if not kw or kw == "" then
-        ngx.say("Missing kw parameter")
-        return
-    end
-
+local function delete_keyword(keyword)
     local dict = ngx.shared.keywords
-    if not dict:get(kw) then
-        ngx.say("Keyword not exists: " .. kw)
+    if not dict:get(keyword) then
+        send_text(200, "Keyword not exists: " .. keyword)
         return
     end
 
-    dict:delete(kw)
+    dict:delete(keyword)
 
-    -- 从文件删除
     local file = "/etc/openresty/keywords.txt"
     local lines = {}
-    local f = io.open(file, "r")
-    if f then
-        for line in f:lines() do
+    local handle = io.open(file, "r")
+    if handle then
+        for line in handle:lines() do
             local line_kw = line:match("^%s*(.-)%s*$")
-            if line_kw ~= kw and line_kw ~= "" then
+            if line_kw ~= keyword and line_kw ~= "" then
                 table.insert(lines, line_kw)
             end
         end
-        f:close()
+        handle:close()
     end
 
-    -- 覆盖写回
-    local fw = io.open(file, "w")
-    if fw then
-        for _, l in ipairs(lines) do
-            fw:write(l .. "\n")
-        end
-        fw:close()
-    else
-        ngx.say("Failed to write file!")
+    local writer = io.open(file, "w")
+    if not writer then
+        send_text(500, "Failed to write file!")
         return
     end
 
-    -- 更新版本号，触发AC自动机重建
+    for _, line in ipairs(lines) do
+        writer:write(line .. "\n")
+    end
+    writer:close()
+
     local version_dict = ngx.shared.keyword_version
     local current_version = version_dict:get("version") or 0
     version_dict:set("version", current_version + 1)
 
-    ngx.say("Keyword deleted: " .. kw)
+    send_text(200, "Keyword deleted: " .. keyword)
 end
 
--- 列出所有关键字
-function _M.list()
+local function list_keywords()
+    local dict = ngx.shared.keywords
+    local keys = dict:get_keys(0)
+    send_text(200, "Keywords: " .. table.concat(keys, ", "))
+end
+
+function _M.handle()
     if not verify_token() then
         return
     end
 
-    local dict = ngx.shared.keywords
-    local keys = dict:get_keys(0)
-    ngx.say("Keywords: " .. table.concat(keys, ", "))
+    local method = ngx.req.get_method()
+
+    if method == "GET" then
+        list_keywords()
+        return
+    end
+
+    if method == "POST" then
+        local keyword, err = read_keyword_from_body()
+        if not keyword then
+            send_text(400, err)
+            return
+        end
+        add_keyword(keyword)
+        return
+    end
+
+    if method == "DELETE" then
+        local keyword, err = read_keyword_from_body()
+        if not keyword then
+            send_text(400, err)
+            return
+        end
+        delete_keyword(keyword)
+        return
+    end
+
+    send_text(405, "Method not allowed")
 end
 
 return _M

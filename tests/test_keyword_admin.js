@@ -36,7 +36,9 @@ function loadApiTokenFromConfig() {
 const API_TOKEN = process.env.API_TOKEN || loadApiTokenFromConfig();
 const GATEWAY_URL = process.env.GATEWAY_URL || 'http://127.0.0.1:18888';
 const TEST_KEYWORD = `keyword with spaces ${Date.now()}`;
-const TEST_KEYWORD_PLUS = `plus encoded keyword ${Date.now()}`;
+const TEST_KEYWORD_PLUS = `asd+23sd-${Date.now()}`;
+const MISSING_KEYWORD_ERROR = 'Missing keyword in request body';
+const INVALID_JSON_ERROR = 'Invalid JSON body';
 
 if (!API_TOKEN) {
   console.error('❌ 错误: 未设置 API_TOKEN 环境变量');
@@ -50,41 +52,63 @@ if (!API_TOKEN) {
   process.exit(1);
 }
 
-async function keywordRequest(path) {
+async function keywordRequest(path, options = {}) {
   const response = await fetch(`${GATEWAY_URL}${path}`, {
-    method: 'GET',
+    method: options.method || 'GET',
     headers: {
       'X-API-Key': API_TOKEN,
+      ...(options.headers || {}),
     },
+    body: options.body,
   });
 
   const text = await response.text();
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  return text.trimEnd();
+  return {
+    status: response.status,
+    text: text.trimEnd(),
+  };
 }
 
 async function addKeyword(keyword) {
-  return keywordRequest(`/keyword/add?kw=${encodeURIComponent(keyword)}`);
-}
+  const response = await keywordRequest('/keywords', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ keyword }),
+  });
 
-async function addKeywordWithPlusEncoding(keyword) {
-  return keywordRequest(`/keyword/add?kw=${encodeURIComponent(keyword).replace(/%20/g, '+')}`);
+  if (response.status !== 200) {
+    throw new Error(`HTTP ${response.status}: ${response.text}`);
+  }
+
+  return response.text;
 }
 
 async function deleteKeyword(keyword) {
-  return keywordRequest(`/keyword/del?kw=${encodeURIComponent(keyword)}`);
-}
+  const response = await keywordRequest('/keywords', {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ keyword }),
+  });
 
-async function deleteKeywordWithPlusEncoding(keyword) {
-  return keywordRequest(`/keyword/del?kw=${encodeURIComponent(keyword).replace(/%20/g, '+')}`);
+  if (response.status !== 200) {
+    throw new Error(`HTTP ${response.status}: ${response.text}`);
+  }
+
+  return response.text;
 }
 
 async function listKeywords() {
-  return keywordRequest('/keyword/list');
+  const response = await keywordRequest('/keywords');
+
+  if (response.status !== 200) {
+    throw new Error(`HTTP ${response.status}: ${response.text}`);
+  }
+
+  return response.text;
 }
 
 async function main() {
@@ -119,21 +143,47 @@ async function main() {
     }
     console.log('✅ 重复添加响应正确');
 
-    console.log('4. 使用 + 编码添加包含空格的关键字...');
-    const addPlusResponse = await addKeywordWithPlusEncoding(TEST_KEYWORD_PLUS);
+    console.log('4. 添加包含字面 + 的关键字...');
+    const addPlusResponse = await addKeyword(TEST_KEYWORD_PLUS);
     const expectedAddPlusResponse = `Keyword added: ${TEST_KEYWORD_PLUS}`;
     if (addPlusResponse !== expectedAddPlusResponse) {
-      throw new Error(`+ 编码添加响应异常: expected "${expectedAddPlusResponse}", got "${addPlusResponse}"`);
+      throw new Error(`字面 + 添加响应异常: expected "${expectedAddPlusResponse}", got "${addPlusResponse}"`);
     }
-    console.log('✅ + 编码添加响应正确');
+    console.log('✅ 字面 + 添加响应正确');
 
     const listWithPlusResponse = await listKeywords();
     if (!listWithPlusResponse.includes(TEST_KEYWORD_PLUS)) {
-      throw new Error(`关键字列表未包含 + 编码添加的原始空格关键字: ${listWithPlusResponse}`);
+      throw new Error(`关键字列表未包含字面 + 关键字: ${listWithPlusResponse}`);
     }
-    console.log('✅ 列表包含 + 编码添加的原始空格关键字');
+    console.log('✅ 列表包含字面 + 关键字');
 
-    console.log('5. 删除包含空格的关键字...');
+    console.log('5. 非法 JSON 请求体...');
+    const invalidJsonResponse = await keywordRequest('/keywords', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: '{"keyword":',
+    });
+    if (invalidJsonResponse.status !== 400 || invalidJsonResponse.text !== INVALID_JSON_ERROR) {
+      throw new Error(`非法 JSON 响应异常: expected "400 ${INVALID_JSON_ERROR}", got "${invalidJsonResponse.status} ${invalidJsonResponse.text}"`);
+    }
+    console.log('✅ 非法 JSON 返回正确错误');
+
+    console.log('6. 缺少 keyword 字段...');
+    const missingKeywordResponse = await keywordRequest('/keywords', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    });
+    if (missingKeywordResponse.status !== 400 || missingKeywordResponse.text !== MISSING_KEYWORD_ERROR) {
+      throw new Error(`缺少 keyword 响应异常: expected "400 ${MISSING_KEYWORD_ERROR}", got "${missingKeywordResponse.status} ${missingKeywordResponse.text}"`);
+    }
+    console.log('✅ 缺少 keyword 返回正确错误');
+
+    console.log('7. 删除包含空格的关键字...');
     const deleteResponse = await deleteKeyword(TEST_KEYWORD);
     const expectedDeleteResponse = `Keyword deleted: ${TEST_KEYWORD}`;
     if (deleteResponse !== expectedDeleteResponse) {
@@ -147,19 +197,27 @@ async function main() {
     }
     console.log('✅ 删除后列表已移除原始空格关键字');
 
-    console.log('6. 删除 + 编码添加的关键字...');
-    const deletePlusResponse = await deleteKeywordWithPlusEncoding(TEST_KEYWORD_PLUS);
+    console.log('8. 删除包含字面 + 的关键字...');
+    const deletePlusResponse = await deleteKeyword(TEST_KEYWORD_PLUS);
     const expectedDeletePlusResponse = `Keyword deleted: ${TEST_KEYWORD_PLUS}`;
     if (deletePlusResponse !== expectedDeletePlusResponse) {
-      throw new Error(`+ 编码删除响应异常: expected "${expectedDeletePlusResponse}", got "${deletePlusResponse}"`);
+      throw new Error(`字面 + 删除响应异常: expected "${expectedDeletePlusResponse}", got "${deletePlusResponse}"`);
     }
-    console.log('✅ + 编码删除响应正确');
+    console.log('✅ 字面 + 删除响应正确');
 
     const listAfterDeletePlusResponse = await listKeywords();
     if (listAfterDeletePlusResponse.includes(TEST_KEYWORD_PLUS)) {
-      throw new Error(`删除 + 编码关键字后列表仍包含该关键字: ${listAfterDeletePlusResponse}`);
+      throw new Error(`删除字面 + 关键字后列表仍包含该关键字: ${listAfterDeletePlusResponse}`);
     }
-    console.log('✅ 删除后列表已移除 + 编码添加的关键字');
+    console.log('✅ 删除后列表已移除字面 + 关键字');
+
+    console.log('9. 删除不存在的关键字...');
+    const deleteMissingResponse = await deleteKeyword(TEST_KEYWORD_PLUS);
+    const expectedDeleteMissingResponse = `Keyword not exists: ${TEST_KEYWORD_PLUS}`;
+    if (deleteMissingResponse !== expectedDeleteMissingResponse) {
+      throw new Error(`删除不存在关键字响应异常: expected "${expectedDeleteMissingResponse}", got "${deleteMissingResponse}"`);
+    }
+    console.log('✅ 删除不存在的关键字响应正确');
 
     console.log('');
     console.log('========================================');

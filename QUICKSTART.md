@@ -70,15 +70,21 @@ make clean
 export API_TOKEN="YOUR_TOKEN"
 
 # 查看关键词列表
-curl -H "X-API-Key: $API_TOKEN" http://localhost/keyword/list
+curl -H "X-API-Key: $API_TOKEN" http://localhost/keywords
 
 # 添加关键词
-curl -H "X-API-Key: $API_TOKEN" \
-  "http://localhost/keyword/add?kw=badword"
+curl -X POST \
+  -H "X-API-Key: $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keyword":"badword"}' \
+  http://localhost/keywords
 
 # 删除关键词
-curl -H "X-API-Key: $API_TOKEN" \
-  "http://localhost/keyword/del?kw=badword"
+curl -X DELETE \
+  -H "X-API-Key: $API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keyword":"badword"}' \
+  http://localhost/keywords
 ```
 
 ## ❓ 常见问题

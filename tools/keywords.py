@@ -109,7 +109,7 @@ class KeywordsManager:
 
     def add_keyword(self, keyword: str) -> bool:
         """添加关键字"""
-        response = self._make_request("GET", f"/keyword/add?kw={keyword}")
+        response = self._make_request("POST", "/keywords", json={"keyword": keyword})
 
         if response is None:
             return False
@@ -126,7 +126,7 @@ class KeywordsManager:
 
     def delete_keyword(self, keyword: str) -> bool:
         """删除关键字"""
-        response = self._make_request("GET", f"/keyword/del?kw={keyword}")
+        response = self._make_request("DELETE", "/keywords", json={"keyword": keyword})
 
         if response is None:
             return False
@@ -143,7 +143,7 @@ class KeywordsManager:
 
     def list_keywords(self) -> List[str]:
         """列出所有关键字"""
-        response = self._make_request("GET", "/keyword/list")
+        response = self._make_request("GET", "/keywords")
 
         if response is None:
             return []
