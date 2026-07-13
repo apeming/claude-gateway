@@ -1,18 +1,12 @@
+local cjson = require "cjson"
+
 local _M = {}
 
 function _M.check()
-    local dict = ngx.shared.keywords
-    local version_dict = ngx.shared.keyword_version
     local config_dict = ngx.shared.api_config
+    local keyword_loader = require "filter.keyword_loader"
+    local metadata = keyword_loader.read_metadata()
 
-    -- 获取基本状态信息
-    local keyword_count = 0
-    local keys = dict:get_keys(0)
-    if keys then
-        keyword_count = #keys
-    end
-
-    local version = version_dict:get("version") or 0
     local has_token = config_dict:get("api_token") ~= nil
 
     -- 统计路由数量
@@ -30,21 +24,21 @@ function _M.check()
 
     ngx.status = 200
     ngx.header["Content-Type"] = "application/json"
-    ngx.say(string.format([[{
-        "status": "healthy",
-        "service": "claude-gateway",
-        "timestamp": "%s",
-        "keywords_loaded": %d,
-        "keyword_version": %d,
-        "auth_configured": %s,
-        "routing_enabled": %s,
-        "routes_loaded": %d,
-        "upstream_url": "%s",
-        "openai_upstream_url": "%s"
-    }]], ngx.localtime(), keyword_count, version, has_token and "true" or "false",
-    (auth_route_enabled == "true") and "true" or "false", routes_count,
-    config_dict:get("upstream_url") or "dynamic",
-    config_dict:get("openai_upstream_url") or "dynamic"))
+    ngx.say(cjson.encode({
+        status = "healthy",
+        service = "claude-gateway",
+        timestamp = ngx.localtime(),
+        keywords_loaded = metadata.keywords_loaded,
+        keyword_version = metadata.keyword_version,
+        keywords_status = metadata.keywords_status,
+        keywords_last_loaded_at = metadata.keywords_last_loaded_at,
+        keywords_load_error = metadata.keywords_load_error,
+        auth_configured = has_token,
+        routing_enabled = auth_route_enabled == "true",
+        routes_loaded = routes_count,
+        upstream_url = config_dict:get("upstream_url") or "dynamic",
+        openai_upstream_url = config_dict:get("openai_upstream_url") or "dynamic"
+    }))
 end
 
 return _M
