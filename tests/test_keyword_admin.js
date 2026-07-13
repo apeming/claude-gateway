@@ -101,14 +101,14 @@ async function deleteKeyword(keyword) {
   return response.text;
 }
 
-async function listKeywords() {
+async function getKeywordMetadata() {
   const response = await keywordRequest('/keywords');
 
   if (response.status !== 200) {
     throw new Error(`HTTP ${response.status}: ${response.text}`);
   }
 
-  return response.text;
+  return JSON.parse(response.text);
 }
 
 async function main() {
@@ -120,6 +120,8 @@ async function main() {
   console.log('');
 
   try {
+    const initialMetadata = await getKeywordMetadata();
+
     console.log('1. 添加包含空格的关键字...');
     const addResponse = await addKeyword(TEST_KEYWORD);
     const expectedAddResponse = `Keyword added: ${TEST_KEYWORD}`;
@@ -128,18 +130,28 @@ async function main() {
     }
     console.log('✅ 添加响应正确');
 
-    console.log('2. 查看关键字列表...');
-    const listResponse = await listKeywords();
-    if (!listResponse.includes(TEST_KEYWORD)) {
-      throw new Error(`关键字列表未包含原始空格关键字: ${listResponse}`);
+    console.log('2. 查看关键字元数据...');
+    const metadataAfterAdd = await getKeywordMetadata();
+    if (metadataAfterAdd.keywords_loaded !== initialMetadata.keywords_loaded + 1) {
+      throw new Error(`关键字数量未增加: before=${initialMetadata.keywords_loaded}, after=${metadataAfterAdd.keywords_loaded}`);
     }
-    console.log('✅ 列表包含原始空格关键字');
+    if (metadataAfterAdd.keyword_version !== initialMetadata.keyword_version + 1) {
+      throw new Error(`关键字版本未增加: before=${initialMetadata.keyword_version}, after=${metadataAfterAdd.keyword_version}`);
+    }
+    console.log('✅ 元数据数量和版本已更新');
 
     console.log('3. 重复添加同一个关键字...');
     const duplicateAddResponse = await addKeyword(TEST_KEYWORD);
     const expectedDuplicateAddResponse = `Keyword already exists: ${TEST_KEYWORD}`;
     if (duplicateAddResponse !== expectedDuplicateAddResponse) {
       throw new Error(`重复添加响应异常: expected "${expectedDuplicateAddResponse}", got "${duplicateAddResponse}"`);
+    }
+    const metadataAfterDuplicate = await getKeywordMetadata();
+    if (metadataAfterDuplicate.keywords_loaded !== metadataAfterAdd.keywords_loaded) {
+      throw new Error('重复添加后关键字数量发生变化');
+    }
+    if (metadataAfterDuplicate.keyword_version !== metadataAfterAdd.keyword_version) {
+      throw new Error('重复添加后关键字版本发生变化');
     }
     console.log('✅ 重复添加响应正确');
 
@@ -151,11 +163,14 @@ async function main() {
     }
     console.log('✅ 字面 + 添加响应正确');
 
-    const listWithPlusResponse = await listKeywords();
-    if (!listWithPlusResponse.includes(TEST_KEYWORD_PLUS)) {
-      throw new Error(`关键字列表未包含字面 + 关键字: ${listWithPlusResponse}`);
+    const metadataAfterPlus = await getKeywordMetadata();
+    if (metadataAfterPlus.keywords_loaded !== metadataAfterAdd.keywords_loaded + 1) {
+      throw new Error('添加第二个关键字后数量未增加');
     }
-    console.log('✅ 列表包含字面 + 关键字');
+    if (metadataAfterPlus.keyword_version !== metadataAfterAdd.keyword_version + 1) {
+      throw new Error('添加第二个关键字后版本未增加');
+    }
+    console.log('✅ 第二次添加后的元数据正确');
 
     console.log('5. 非法 JSON 请求体...');
     const invalidJsonResponse = await keywordRequest('/keywords', {
@@ -191,11 +206,14 @@ async function main() {
     }
     console.log('✅ 删除响应正确');
 
-    const listAfterDeleteResponse = await listKeywords();
-    if (listAfterDeleteResponse.includes(TEST_KEYWORD)) {
-      throw new Error(`删除后列表仍包含关键字: ${listAfterDeleteResponse}`);
+    const metadataAfterDelete = await getKeywordMetadata();
+    if (metadataAfterDelete.keywords_loaded !== metadataAfterPlus.keywords_loaded - 1) {
+      throw new Error('删除第一个关键字后数量未减少');
     }
-    console.log('✅ 删除后列表已移除原始空格关键字');
+    if (metadataAfterDelete.keyword_version !== metadataAfterPlus.keyword_version + 1) {
+      throw new Error('删除第一个关键字后版本未增加');
+    }
+    console.log('✅ 删除后的元数据正确');
 
     console.log('8. 删除包含字面 + 的关键字...');
     const deletePlusResponse = await deleteKeyword(TEST_KEYWORD_PLUS);
@@ -205,11 +223,17 @@ async function main() {
     }
     console.log('✅ 字面 + 删除响应正确');
 
-    const listAfterDeletePlusResponse = await listKeywords();
-    if (listAfterDeletePlusResponse.includes(TEST_KEYWORD_PLUS)) {
-      throw new Error(`删除字面 + 关键字后列表仍包含该关键字: ${listAfterDeletePlusResponse}`);
+    const metadataAfterDeletePlus = await getKeywordMetadata();
+    if (metadataAfterDeletePlus.keywords_loaded !== initialMetadata.keywords_loaded) {
+      throw new Error('删除全部测试关键字后数量未恢复');
     }
-    console.log('✅ 删除后列表已移除字面 + 关键字');
+    if (metadataAfterDeletePlus.keyword_version !== metadataAfterDelete.keyword_version + 1) {
+      throw new Error('删除第二个关键字后版本未增加');
+    }
+    if (typeof metadataAfterDeletePlus.keywords_status !== 'string') {
+      throw new Error('关键字状态字段缺失');
+    }
+    console.log('✅ 删除全部测试关键字后的元数据正确');
 
     console.log('9. 删除不存在的关键字...');
     const deleteMissingResponse = await deleteKeyword(TEST_KEYWORD_PLUS);
