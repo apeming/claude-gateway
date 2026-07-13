@@ -5,6 +5,7 @@ local _M = {}
 function _M.check()
     local config_dict = ngx.shared.api_config
     local keyword_loader = require "filter.keyword_loader"
+    keyword_loader.ensure_ready()
     local metadata = keyword_loader.read_metadata()
 
     local has_token = config_dict:get("api_token") ~= nil
