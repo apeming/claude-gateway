@@ -68,39 +68,19 @@ pip3 install -r requirements.txt
 ./keywords del "sensitive-word"
 ```
 
-#### 列出所有关键字
+#### 查看关键字元数据
 ```bash
 ./keywords list
 ```
 
-### 批量操作
-
-#### 从文件导入关键字
-```bash
-# 使用示例文件
-./keywords import sample-keywords.txt
-
-# 使用自定义文件
-./keywords import /path/to/your/keywords.txt
-```
-
-关键字文件格式：
-```
-# 这是注释行，会被忽略
-sensitive-word
-bad-content
-spam
-# 另一个注释
-malware
-```
-
-#### 导出关键字到文件
-```bash
-# 导出所有关键字
-./keywords export backup.txt
-
-# 导出到指定路径
-./keywords export /backup/keywords-$(date +%Y%m%d).txt
+输出示例：
+```text
+📋 关键字元数据:
+   数量: 3
+   版本: 1
+   状态: ready
+   最近加载: 2026-07-13 09:40:24
+   加载错误: 无
 ```
 
 ### 配置管理
@@ -132,32 +112,21 @@ else
     exit 1
 fi
 
-# 批量添加关键字
+# 小规模添加关键字
 for word in "spam" "malware" "phishing"; do
     ./keywords add "$word"
 done
-
-# 导出备份
-./keywords export "backup-$(date +%Y%m%d-%H%M%S).txt"
 ```
 
-### 批量管理示例
+### 运维说明
 
 ```bash
-# 1. 导出现有关键字作为备份
-./keywords export backup-before-update.txt
-
-# 2. 导入新的关键字列表
-./keywords import new-keywords.txt
-
-# 3. 检查导入结果
+# 检查当前关键字加载状态
 ./keywords list
-
-# 4. 如果有问题，可以从备份恢复
-# 首先清空现有关键字（需要手动删除）
-# 然后重新导入备份
-./keywords import backup-before-update.txt
 ```
+
+大规模关键字维护不再通过 CLI 进行。当前推荐方式是直接更新服务端使用的
+`keywords.txt`，然后 reload 或重启 OpenResty。
 
 ## 📁 文件结构
 
@@ -168,7 +137,6 @@ tools/
 ├── routes                      # 路由管理执行脚本
 ├── routes.py                   # 路由管理 Python 实现
 ├── requirements.txt            # 依赖包列表
-├── sample-keywords.txt         # 示例关键字文件
 ├── sample-routes.txt           # 示例路由配置文件
 ├── install.sh                  # 安装脚本
 └── README.md                   # 本文档
@@ -264,14 +232,13 @@ chmod +x keywords
 关键字管理工具调用的API接口：
 - `POST /keywords` - 添加关键字（JSON 请求体：`{"keyword":"..."}`）
 - `DELETE /keywords` - 删除关键字（JSON 请求体：`{"keyword":"..."}`）
-- `GET /keywords` - 列出关键字
+- `GET /keywords` - 获取关键字元数据
 - `GET /health` - 服务状态
 
 ## 📝 更新日志
 
 ### v1.0.0
 - ✅ 基本的CRUD操作（添加、删除、列表）
-- ✅ 批量导入导出功能
 - ✅ 配置文件管理
 - ✅ 服务状态检查
 - ✅ 脚本友好的命令行界面

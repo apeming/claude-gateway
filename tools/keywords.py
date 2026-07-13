@@ -11,7 +11,7 @@ import sys
 import platform
 import requests
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, Optional
 from urllib.parse import urljoin
 
 
@@ -107,6 +107,12 @@ class KeywordsManager:
             print(f"❌ 请求失败: {e}")
             return None
 
+    def _handle_auth_error(self, response: requests.Response) -> bool:
+        if response.status_code == 401:
+            print("❌ API Token 无效，请检查配置")
+            return True
+        return False
+
     def add_keyword(self, keyword: str) -> bool:
         """添加关键字"""
         response = self._make_request("POST", "/keywords", json={"keyword": keyword})
@@ -117,8 +123,7 @@ class KeywordsManager:
         if response.status_code == 200:
             print(f"✅ 关键字 '{keyword}' 添加成功")
             return True
-        elif response.status_code == 401:
-            print("❌ API Token 无效，请检查配置")
+        elif self._handle_auth_error(response):
             return False
         else:
             print(f"❌ 添加失败: {response.text}")
@@ -134,39 +139,51 @@ class KeywordsManager:
         if response.status_code == 200:
             print(f"✅ 关键字 '{keyword}' 删除成功")
             return True
-        elif response.status_code == 401:
-            print("❌ API Token 无效，请检查配置")
+        elif self._handle_auth_error(response):
             return False
         else:
             print(f"❌ 删除失败: {response.text}")
             return False
 
-    def list_keywords(self) -> List[str]:
-        """列出所有关键字"""
+    def get_keyword_metadata(self) -> Optional[Dict[str, object]]:
+        """获取关键字元数据"""
         response = self._make_request("GET", "/keywords")
 
         if response is None:
-            return []
+            return None
 
         if response.status_code == 200:
-            # 解析返回的关键字列表
-            text = response.text
-            if text.startswith("Keywords: "):
-                keywords_str = text[10:].strip()
-                if keywords_str:
-                    keywords = [kw.strip() for kw in keywords_str.split(",")]
-                    return [kw for kw in keywords if kw]
-                else:
-                    return []
-            else:
-                print(f"❌ 解析响应失败: {text}")
-                return []
-        elif response.status_code == 401:
-            print("❌ API Token 无效，请检查配置")
-            return []
+            try:
+                payload = response.json()
+            except json.JSONDecodeError:
+                print(f"❌ 解析响应失败: {response.text}")
+                return None
+
+            if not isinstance(payload, dict):
+                print(f"❌ 响应格式异常: {payload}")
+                return None
+
+            return payload
+        elif self._handle_auth_error(response):
+            return None
         else:
-            print(f"❌ 获取关键字列表失败: {response.text}")
-            return []
+            print(f"❌ 获取关键字元数据失败: {response.text}")
+            return None
+
+    def show_keyword_metadata(self) -> bool:
+        """显示关键字元数据"""
+        metadata = self.get_keyword_metadata()
+        if metadata is None:
+            return False
+
+        print("📋 关键字元数据:")
+        print(f"   数量: {metadata.get('keywords_loaded', 0)}")
+        print(f"   版本: {metadata.get('keyword_version', 'unknown')}")
+        print(f"   状态: {metadata.get('keywords_status', 'unknown')}")
+        print(f"   最近加载: {metadata.get('keywords_last_loaded_at', '') or 'N/A'}")
+        load_error = metadata.get('keywords_load_error', '') or '无'
+        print(f"   加载错误: {load_error}")
+        return True
 
     def check_status(self) -> bool:
         """检查服务状态"""
@@ -183,6 +200,11 @@ class KeywordsManager:
                 print(f"   状态: {health_data.get('status', 'unknown')}")
                 print(f"   服务: {health_data.get('service', 'unknown')}")
                 print(f"   关键字数量: {health_data.get('keywords_loaded', 0)}")
+                print(f"   关键字版本: {health_data.get('keyword_version', 'unknown')}")
+                print(f"   关键字状态: {health_data.get('keywords_status', 'unknown')}")
+                print(f"   最近加载: {health_data.get('keywords_last_loaded_at', '') or 'N/A'}")
+                load_error = health_data.get('keywords_load_error', '') or '无'
+                print(f"   加载错误: {load_error}")
                 print(f"   认证配置: {health_data.get('auth_configured', 'unknown')}")
                 print(f"   上游地址: {health_data.get('upstream_url', 'unknown')}")
                 return True
@@ -191,63 +213,6 @@ class KeywordsManager:
                 return True
         else:
             print(f"❌ 服务异常: HTTP {response.status_code}")
-            return False
-
-    def import_from_file(self, filename: str) -> bool:
-        """从文件导入关键字"""
-        if not os.path.exists(filename):
-            print(f"❌ 文件不存在: {filename}")
-            return False
-
-        try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                keywords = [line.strip() for line in f.readlines()]
-                keywords = [kw for kw in keywords if kw and not kw.startswith('#')]
-
-            if not keywords:
-                print("⚠️  文件中没有找到有效的关键字")
-                return False
-
-            success_count = 0
-            fail_count = 0
-
-            print(f"📥 开始导入 {len(keywords)} 个关键字...")
-
-            for keyword in keywords:
-                if self.add_keyword(keyword):
-                    success_count += 1
-                else:
-                    fail_count += 1
-
-            print(f"\n📊 导入完成: 成功 {success_count}, 失败 {fail_count}")
-            return fail_count == 0
-
-        except Exception as e:
-            print(f"❌ 读取文件失败: {e}")
-            return False
-
-    def export_to_file(self, filename: str) -> bool:
-        """导出关键字到文件"""
-        keywords = self.list_keywords()
-
-        if not keywords:
-            print("⚠️  没有关键字可导出")
-            return False
-
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.write("# 关键字列表\n")
-                f.write(f"# 导出时间: {json.dumps(keywords, ensure_ascii=False)}\n")
-                f.write("# 每行一个关键字\n\n")
-
-                for keyword in keywords:
-                    f.write(f"{keyword}\n")
-
-            print(f"✅ 已导出 {len(keywords)} 个关键字到 {filename}")
-            return True
-
-        except Exception as e:
-            print(f"❌ 写入文件失败: {e}")
             return False
 
 
@@ -260,9 +225,7 @@ def main():
 示例:
   %(prog)s add sensitive-word          # 添加关键字
   %(prog)s del sensitive-word          # 删除关键字
-  %(prog)s list                        # 列出所有关键字
-  %(prog)s import keywords.txt         # 从文件导入
-  %(prog)s export backup.txt           # 导出到文件
+  %(prog)s list                        # 查看关键字元数据
   %(prog)s config                      # 配置API设置
   %(prog)s status                      # 检查服务状态
         """
@@ -279,15 +242,7 @@ def main():
     del_parser.add_argument('keyword', help='要删除的关键字')
 
     # list 命令
-    subparsers.add_parser('list', help='列出所有关键字')
-
-    # import 命令
-    import_parser = subparsers.add_parser('import', help='从文件导入关键字')
-    import_parser.add_argument('file', help='包含关键字的文件路径')
-
-    # export 命令
-    export_parser = subparsers.add_parser('export', help='导出关键字到文件')
-    export_parser.add_argument('file', help='导出文件路径')
+    subparsers.add_parser('list', help='查看关键字元数据')
 
     # config 命令
     subparsers.add_parser('config', help='配置API设置')
@@ -313,19 +268,7 @@ def main():
         manager.delete_keyword(args.keyword)
 
     elif args.command == 'list':
-        keywords = manager.list_keywords()
-        if keywords:
-            print(f"📋 共 {len(keywords)} 个关键字:")
-            for i, keyword in enumerate(keywords, 1):
-                print(f"  {i:2d}. {keyword}")
-        else:
-            print("📋 暂无关键字")
-
-    elif args.command == 'import':
-        manager.import_from_file(args.file)
-
-    elif args.command == 'export':
-        manager.export_to_file(args.file)
+        manager.show_keyword_metadata()
 
     elif args.command == 'config':
         print("🔧 配置API设置")

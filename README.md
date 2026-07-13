@@ -68,7 +68,6 @@ claude-gateway/
 │   ├── keywords.py          # Python CLI实现
 │   ├── install.sh           # 安装脚本
 │   ├── requirements.txt     # Python依赖
-│   ├── sample-keywords.txt  # 示例关键字文件
 │   └── README.md            # 工具使用说明
 └── openresty/               # OpenResty 相关文件
     ├── Dockerfile           # Docker 镜像构建
@@ -897,30 +896,21 @@ keywords add "sensitive-word"
 # 删除关键字
 keywords del "sensitive-word"
 
-# 列出所有关键字
+# 查看关键字元数据
 keywords list
-
-# 从文件批量导入
-keywords import sample-keywords.txt
-
-# 导出到文件
-keywords export backup.txt
 ```
 
-### 批量管理示例
+### 小规模维护示例
 
 ```bash
-# 备份现有关键字
-keywords export backup-$(date +%Y%m%d).txt
-
-# 批量添加关键字
+# 小规模添加关键字
 for word in "spam" "malware" "phishing"; do
     keywords add "$word"
 done
-
-# 从文件导入新的关键字列表
-keywords import new-keywords.txt
 ```
+
+大规模关键字更新建议直接维护 `keywords.txt` 并 reload 服务，不再通过 CLI
+做导入导出。
 
 > 📚 详细使用说明请参考：[tools/README.md](tools/README.md)
 

@@ -69,7 +69,7 @@ make clean
 # 替换 YOUR_TOKEN 为你的实际 token
 export API_TOKEN="YOUR_TOKEN"
 
-# 查看关键词列表
+# 查看关键词元数据
 curl -H "X-API-Key: $API_TOKEN" http://localhost/keywords
 
 # 添加关键词
