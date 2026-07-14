@@ -11,7 +11,10 @@ async function main() {
   const body = await response.json();
   assert.equal(body.status, 'healthy');
   assert.equal(typeof body.keyword_version, 'number');
+  assert.equal(body.keyword_backend, 'lua');
   assert.equal(typeof body.keywords_loaded, 'number');
+  assert.equal(typeof body.keyword_matcher_chunks, 'number');
+  assert.equal(typeof body.keyword_chunk_size, 'number');
   assert.equal(typeof body.keywords_status, 'string');
   assert.equal(typeof body.keywords_last_loaded_at, 'string');
   assert.equal(typeof body.keywords_load_error, 'string');

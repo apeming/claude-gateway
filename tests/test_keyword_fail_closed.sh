@@ -45,5 +45,9 @@ BODY="$(cat "$OUTPUT_FILE")"
 
 [[ "$HTTP_CODE" == "400" ]]
 grep -F "关键词库加载失败" <<<"$BODY" >/dev/null
+if grep -F "错误详情：" <<<"$BODY" >/dev/null; then
+  echo "unexpected internal error detail in client response" >&2
+  exit 1
+fi
 
 echo "fail-closed path returns 400 with Chinese error"

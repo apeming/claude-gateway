@@ -3,7 +3,7 @@ FROM openresty/openresty:alpine
 # 使用阿里云镜像源
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# 安装必要的工具（包括编译工具用于lua-aho-corasick）
+# 安装必要的工具
 RUN apk add --no-cache \
     wget \
     unzip \
@@ -30,6 +30,7 @@ COPY libs/ /tmp/libs/
 RUN cd /tmp/libs \
     && unzip lua-aho-corasick.zip \
     && cd lua-aho-corasick-master \
+    && sed -i 's/luaL_register(L, tname, lib_funcs);/lua_newtable(L); luaL_register(L, NULL, lib_funcs);/' ac_lua.cxx \
     && make \
     && make install LUA_INCLUDE_DIR=/usr/local/openresty/luajit/include/luajit-2.1 \
     && cp ahocorasick.so /usr/local/openresty/site/lualib/ \
@@ -62,7 +63,8 @@ RUN apk add --no-cache brotli-dev brotli-libs
 RUN apk add --no-cache brotli-dev brotli-libs
 
 # 复制 Nginx 配置文件和 Lua 模块
-COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
+COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf.template
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY brotli.lua /usr/local/openresty/site/lualib/brotli.lua
 
 # 复制 conf.d 配置目录
@@ -74,6 +76,7 @@ COPY lua/ /usr/local/openresty/nginx/lua/
 # 设置默认环境变量
 ENV API_TOKEN=default-secret-token-please-change-me
 ENV UPSTREAM_URL=https://api.anthropic.com
+ENV WORKER_PROCESSES=1
 
 # 暴露端口
 EXPOSE 80
@@ -83,4 +86,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:80/health || exit 1
 
 # 启动 OpenResty
-CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+CMD ["/usr/local/bin/docker-entrypoint.sh"]

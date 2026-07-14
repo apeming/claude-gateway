@@ -16,6 +16,10 @@ services:
       - UPSTREAM_URL=${UPSTREAM_URL:-https://api.anthropic.com}
       # OpenAI/Codex 上游服务地址（/openai* 默认模式使用）
       - OPENAI_UPSTREAM_URL=${OPENAI_UPSTREAM_URL:-https://api.openai.com/v1}
+      # OpenResty worker 数量，纯 Lua 关键词方案默认建议 1
+      - WORKER_PROCESSES=${WORKER_PROCESSES:-1}
+      # 关键词分块构建大小，用于降低大词库启动峰值内存
+      - KEYWORD_CHUNK_SIZE=${KEYWORD_CHUNK_SIZE:-50000}
 
     # 端口映射
     ports:
@@ -34,17 +38,16 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      start_period: 5s
+      start_period: 300s
 
     # 重启策略
     restart: unless-stopped
-
     # 资源限制（可选）
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: 512M
+          memory: 2G
         reservations:
           cpus: '0.5'
           memory: 256M

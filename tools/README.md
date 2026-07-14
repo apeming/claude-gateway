@@ -126,7 +126,7 @@ done
 ```
 
 大规模关键字维护不再通过 CLI 进行。当前推荐方式是直接更新服务端使用的
-`keywords.txt`，然后 reload 或重启 OpenResty。
+`keywords.txt`，然后执行 `docker compose restart claude-gateway` 让网关重新加载关键词。
 
 ## 📁 文件结构
 

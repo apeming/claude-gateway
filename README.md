@@ -1,6 +1,6 @@
 # Claude Gateway
 
-基于 OpenResty/Nginx + Lua 的高性能 AI API 网关，采用模块化架构，提供关键词过滤、动态路由、Anthropic API 兼容、OpenAI/Codex 请求转发和智能重试等功能。
+基于 OpenResty/Nginx + Lua 的 AI API 网关，采用模块化架构，提供关键词过滤、动态路由、Anthropic API 兼容、OpenAI/Codex 请求转发和智能重试等功能。
 
 ## 🛡️ 关键词过滤功能
 
@@ -9,7 +9,7 @@
 - **前缀匹配**：取敏感信息（API密钥、令牌、密码等）的前N位作为关键词进行匹配
 - **实时拦截保护**：当检测到请求包含配置的关键词时，立即阻止请求转发
 - **安全响应机制**：返回安全提示并建议用户执行 `/clear` 指令清除上下文，避免信息污染
-- **高性能算法**：使用 Aho-Corasick 算法，确保关键词匹配的高效性
+- **高性能算法**：使用 OpenResty 内嵌 Lua Aho-Corasick 自动机进行关键词匹配
 
 **典型使用场景**：
 ```bash
@@ -26,7 +26,7 @@ eyJhbGciOiJIUzI1   # JWT Token 前缀
 ### 核心功能
 - 🏗️ **模块化架构**: Nginx 配置精简 74%（1041 行 → 269 行），采用 9 个独立 Lua 模块
 - 🔑 **双认证模式**: 支持 Authorization Token 和 x-api-key 两种认证方式
-- 🚀 **高性能关键词过滤**: 使用 Aho-Corasick 算法，O(m) 时间复杂度，支持敏感信息前缀匹配保护
+- 🚀 **高性能关键词过滤**: 纯 Lua Aho-Corasick 关键词匹配，O(m) 时间复杂度
 - 🎯 **动态路由**: 基于认证信息智能路由到不同上游服务，支持多租户和多后端管理
 - 🔄 **智能重试机制**: 支持 400 错误自动重试，指数退避策略，支持 Brotli/Gzip 解压
 - 📡 **流式响应**: 完整支持 SSE 流式响应，实时传输数据
@@ -74,14 +74,13 @@ claude-gateway/
     ├── nginx.conf           # Nginx 配置（模块化，269 行）
     ├── conf.d/              # Nginx 配置片段
     │   └── default.conf     # 默认配置
-    ├── keywords.txt         # 关键词配置文件
-    ├── routes.txt           # 路由配置文件
     └── lua/                 # Lua 模块（模块化架构）
         ├── utils/           # 工具模块
         │   ├── body_reader.lua      # 请求体读取（支持大文件）
         │   └── brotli.lua           # Brotli 解压缩
         ├── filter/          # 过滤器模块
-        │   └── keyword_filter.lua   # 关键词过滤（AC 自动机）
+        │   ├── keyword_filter.lua   # 关键词过滤响应
+        │   └── keyword_loader.lua   # 关键词加载器
         ├── router/          # 路由模块
         │   └── dynamic_router.lua   # 动态路由
         ├── proxy/           # 代理模块
@@ -179,7 +178,7 @@ make deploy
 ### 4. 验证服务
 
 ```bash
-# 健康检查
+# 健康检查（关键词库未就绪时返回 503）
 curl http://localhost/health
 
 # 或使用 make 命令
@@ -198,6 +197,8 @@ make health
 | `ENABLE_DYNAMIC_ROUTING` | 是否启用动态路由 | `false` | ❌ 否 |
 | `UPSTREAM_URL` | 上游服务地址（默认模式使用） | `https://api.anthropic.com` | ❌ 否 |
 | `OPENAI_UPSTREAM_URL` | OpenAI/Codex 上游地址（默认模式下 `/openai*` 使用） | `https://api.openai.com/v1` | ❌ 否 |
+| `WORKER_PROCESSES` | OpenResty worker 数量，支持数字或 `auto` | `1` | ❌ 否 |
+| `KEYWORD_CHUNK_SIZE` | 关键词分块构建大小，用于降低启动峰值内存 | `50000` | ❌ 否 |
 | `HOST_PORT` | 主机端口映射 | `80` | ❌ 否 |
 | `CONFIG_DIR` | 配置目录（宿主机，包含配置文件） | `./openresty` | ❌ 否 |
 | `DOCKER_NETWORK_NAME` | Docker 网络名称 | `claude-gateway-network` | ❌ 否 |
@@ -210,6 +211,8 @@ make health
 
 - **keywords.txt** - 关键词过滤配置，每行一个关键词
 - **routes.txt** - 路由配置（启用动态路由时使用），每行格式：`<token> <upstream_url>`
+
+`keywords.txt` 是必需文件。如果缺失、不可读或关键词引擎构建失败，网关会进入 `fail-closed` 模式：相关请求返回中文 `400`，同时 `/health` 暴露当前加载状态和最近一次错误。
 
 **关键词文件示例（keywords.txt）：**
 
@@ -528,12 +531,17 @@ GET /health
   "status": "healthy",
   "service": "claude-gateway",
   "timestamp": "2025-01-31 10:30:45",
+  "keyword_backend": "lua",
   "keywords_loaded": 2,
   "keyword_version": 1,
+  "keywords_status": "ready",
+  "keywords_last_loaded_at": "2025-01-31 10:30:44",
+  "keywords_load_error": "",
   "auth_configured": true,
   "routing_enabled": true,
   "routes_loaded": 3,
-  "upstream_url": "dynamic"
+  "upstream_url": "dynamic",
+  "openai_upstream_url": "dynamic"
 }
 ```
 
@@ -717,8 +725,15 @@ X-API-Key: your-token-here
 ```
 
 **响应示例：**
-```text
-Keywords: word1, word2, word3
+```json
+{
+  "keyword_backend": "lua",
+  "keywords_loaded": 2,
+  "keyword_version": 4,
+  "keywords_status": "ready",
+  "keywords_last_loaded_at": "2025-01-31 10:30:44",
+  "keywords_load_error": ""
+}
 ```
 
 **添加关键词：**
@@ -734,6 +749,8 @@ Content-Type: application/json
 ```text
 Keyword added: badword
 ```
+
+添加/删除关键词时，网关会先更新 `keywords.txt`，再触发当前 worker 重建关键词自动机；如果重载失败，会自动回滚文件变更并返回错误。
 
 **删除关键词：**
 ```bash
@@ -1063,6 +1080,7 @@ cr_3 http://backend3.example.com
 
 **配置热加载：**
 - **关键词**：通过 `/keywords` API 动态管理，修改立即生效
+- **关键词批量维护**：直接改 `keywords.txt` 后，执行 `docker compose restart claude-gateway` 让网关重新加载关键词
 - **路由**：通过 `/route/add`、`/route/update`、`/route/del` API 动态管理，或通过 `/route/reload` API 重新加载文件
 - 修改宿主机上的配置文件会自动同步到容器内
 
@@ -1071,6 +1089,14 @@ cr_3 http://backend3.example.com
 ### 核心功能
 
 本系统提供强大的关键词过滤机制，可有效防止敏感信息被意外发送到第三方服务器。当检测到请求内容包含配置的关键词时，系统会立即拦截请求并返回错误响应。
+
+当前关键词匹配架构为：
+
+1. OpenResty worker 从 `keywords.txt` 构建本地 Aho-Corasick 自动机
+2. 为降低大词库启动峰值内存，关键词按 `KEYWORD_CHUNK_SIZE` 分块构建为多个自动机
+3. 请求进入上游前，Lua 在 worker 内按块依次完成关键词匹配
+4. 关键词文件缺失、不可读或重建失败时，请求按 `fail-closed` 返回中文 `400`
+5. `/health` 与 `/keywords` 都会暴露当前关键词加载状态、分块数与最近一次错误
 
 ### 智能重试机制
 
@@ -1134,9 +1160,10 @@ xoxb-123456        # Slack Bot Token 前缀
 ### 工作原理
 
 1. **请求拦截**: 所有发往上游服务的请求都会经过关键词检查
-2. **内容扫描**: 使用 Aho-Corasick 算法快速匹配请求体中的关键词
+2. **内容扫描**: OpenResty Lua 使用 Aho-Corasick 算法快速匹配请求体中的关键词
 3. **即时拦截**: 发现匹配关键词时立即阻止请求转发
-4. **安全响应**: 返回通用错误信息，不暴露具体的敏感内容
+4. **失败关闭**: 关键词库不可用时直接拒绝请求，不带着不确定状态继续放行
+5. **安全响应**: 返回中文错误信息，并在健康检查中暴露加载状态
 
 ### 配置最佳实践
 
@@ -1444,11 +1471,14 @@ docker compose version
 # 检查关键词是否加载
 curl http://localhost/health | jq '.keywords_loaded'
 
-# 查看关键词列表
+# 查看关键词元数据
 curl -H "X-API-Key: token" http://localhost/keywords
 
 # 检查容器内文件
 docker exec claude-gateway cat /etc/openresty/keywords.txt
+
+# 查看网关日志
+docker compose logs --tail=50 claude-gateway
 ```
 
 ### 鉴权失败
@@ -1481,13 +1511,25 @@ docker compose logs --tail=50
 
 ### 1. 增加 Worker 进程
 
-编辑 `openresty/nginx.conf`:
+在 `.env` 中配置：
 
-```nginx
-worker_processes auto;  # 改为自动（基于CPU核心数）
+```dotenv
+WORKER_PROCESSES=auto
 ```
 
-### 2. 调整连接数
+大词库场景下不要盲目增大 `WORKER_PROCESSES`，因为每个 worker 都会常驻一份关键词自动机。
+
+### 2. 降低关键词启动峰值内存
+
+在 `.env` 中配置：
+
+```dotenv
+KEYWORD_CHUNK_SIZE=20000
+```
+
+值越小，启动/重载峰值内存越低，但请求匹配时需要遍历更多自动机块。
+
+### 3. 调整连接数
 
 ```nginx
 events {
@@ -1541,7 +1583,8 @@ http {
 **模块列表：**
 - `utils/body_reader.lua` - 请求体读取（支持大文件）
 - `utils/brotli.lua` - Brotli 解压缩
-- `filter/keyword_filter.lua` - 关键词过滤（AC 自动机）
+- `filter/keyword_filter.lua` - 关键词过滤
+- `filter/keyword_loader.lua` - 关键词加载器
 - `router/dynamic_router.lua` - 动态路由
 - `proxy/http_proxy.lua` - HTTP 代理（流式/非流式）
 - `handler/api_handler.lua` - API 请求处理
@@ -1552,7 +1595,7 @@ http {
 
 ### v1.0.0 (2025-10-29)
 
-- ✅ 基于 Aho-Corasick 算法的高性能关键词过滤
+- ✅ 基于 Lua + Aho-Corasick 的高性能关键词过滤
 - ✅ API Token 鉴权机制
 - ✅ 健康检查端点
 - ✅ Docker Compose 支持

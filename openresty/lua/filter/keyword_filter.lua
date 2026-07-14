@@ -50,17 +50,17 @@ function _M.send_blocked_response()
 
     if load_error ~= "" then
         ngx.status = 400
-        ngx.print("关键词库加载失败，请联系管理员检查关键词文件。错误详情：" .. load_error)
+        ngx.print("关键词库加载失败，请联系管理员检查关键词文件。")
         return
     end
 
     ngx.status = 403
 
-    local message = "\n\n检测到请求中包含敏感信息，已被安全策略拦截。" ..
-        "\n\n请先执行 `/clear` 清理当前会话上下文，避免潜在的信息泄露，然后修改请求内容后重试。"
+    local message = "检测到请求中包含敏感信息，已被安全策略拦截。" ..
+        "请先执行 /clear 清理当前会话上下文，避免潜在的信息泄露，然后修改请求内容后重试。"
 
     if matched ~= "" then
-        message = message .. "\n\n命中关键词：" .. matched
+        message = message .. "命中关键词：" .. matched
     end
 
     ngx.print(message)

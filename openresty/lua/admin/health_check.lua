@@ -5,7 +5,6 @@ local _M = {}
 function _M.check()
     local config_dict = ngx.shared.api_config
     local keyword_loader = require "filter.keyword_loader"
-    keyword_loader.ensure_ready()
     local metadata = keyword_loader.read_metadata()
 
     local has_token = config_dict:get("api_token") ~= nil
@@ -23,13 +22,22 @@ function _M.check()
         end
     end
 
-    ngx.status = 200
+    local status = "healthy"
+    if metadata.keywords_status == "ready" then
+        ngx.status = 200
+    else
+        ngx.status = 503
+        status = "unhealthy"
+    end
     ngx.header["Content-Type"] = "application/json"
     ngx.say(cjson.encode({
-        status = "healthy",
+        status = status,
         service = "claude-gateway",
         timestamp = ngx.localtime(),
+        keyword_backend = metadata.keyword_backend,
         keywords_loaded = metadata.keywords_loaded,
+        keyword_matcher_chunks = metadata.keyword_matcher_chunks,
+        keyword_chunk_size = metadata.keyword_chunk_size,
         keyword_version = metadata.keyword_version,
         keywords_status = metadata.keywords_status,
         keywords_last_loaded_at = metadata.keywords_last_loaded_at,

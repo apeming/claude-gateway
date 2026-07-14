@@ -104,28 +104,55 @@ local function read_keywords_from_file()
     return lines, exists
 end
 
-local function bump_keyword_version()
-    local version_dict = ngx.shared.keyword_version
-    local current_version = version_dict:get("version") or 1
-    local next_version = current_version + 1
-    local ok, err = version_dict:set("version", next_version)
-    if not ok then
-        return nil, err or "set failed"
+local function write_keywords_file(lines)
+    local temp_path = KEYWORDS_FILE .. ".tmp"
+    local writer, err = io.open(temp_path, "w")
+    if not writer then
+        return false, err or "open temp file failed"
     end
-    return next_version
-end
 
-local function sync_keyword_metadata(loaded)
-    local version_dict = ngx.shared.keyword_version
-    local ok1 = version_dict:set("keywords_loaded", loaded)
-    local ok2 = version_dict:set("keywords_load_error", "")
-    local ok3 = version_dict:set("keywords_status", "ready")
+    for _, line in ipairs(lines) do
+        writer:write(line .. "\n")
+    end
 
-    if not ok1 or not ok2 or not ok3 then
-        return false
+    writer:close()
+
+    local ok, rename_err = os.rename(temp_path, KEYWORDS_FILE)
+    if not ok then
+        os.remove(temp_path)
+        return false, rename_err or "rename failed"
     end
 
     return true
+end
+
+local function persist_and_reload(next_lines, rollback_lines)
+    local ok, write_err = write_keywords_file(next_lines)
+    if not ok then
+        ngx.log(ngx.ERR, "Failed to write keyword file: ", write_err or "unknown error")
+        return false, "写入关键词文件失败"
+    end
+
+    local metadata, reload_err = keyword_loader.reload()
+    if metadata then
+        return true, nil, metadata
+    end
+
+    ngx.log(ngx.ERR, "Keyword engine reload failed after file update: ", reload_err or "unknown error")
+
+    local rollback_ok, rollback_write_err = write_keywords_file(rollback_lines)
+    if not rollback_ok then
+        ngx.log(ngx.ERR, "Failed to rollback keyword file after reload failure: ", rollback_write_err or "unknown error")
+        return false, "关键词重载失败，且回滚关键词文件失败"
+    end
+
+    local _, rollback_reload_err = keyword_loader.reload()
+    if rollback_reload_err then
+        ngx.log(ngx.ERR, "Failed to reload keyword engine after rollback: ", rollback_reload_err)
+        return false, "关键词重载失败，且回滚后重新加载失败"
+    end
+
+    return false, "关键词重载失败: " .. (reload_err or "unknown error")
 end
 
 local function add_keyword(keyword)
@@ -141,25 +168,15 @@ local function add_keyword(keyword)
         return
     end
 
-    local handle = io.open(KEYWORDS_FILE, "a+")
-    if not handle then
-        send_text(500, "写入关键词文件失败")
-        return
+    local next_lines = {}
+    for _, line in ipairs(lines) do
+        table.insert(next_lines, line)
     end
+    table.insert(next_lines, keyword)
 
-    handle:write(keyword .. "\n")
-    handle:close()
-
-    local next_version, version_err = bump_keyword_version()
-    if not next_version then
-        ngx.log(ngx.ERR, "Failed to bump keyword version after add: ", version_err or "unknown error")
-        send_text(500, "更新关键词版本失败")
-        return
-    end
-
-    if not sync_keyword_metadata(#lines + 1) then
-        ngx.log(ngx.ERR, "Failed to sync keyword metadata after add")
-        send_text(500, "同步关键词元数据失败")
+    local ok, reload_err = persist_and_reload(next_lines, lines)
+    if not ok then
+        send_text(500, reload_err)
         return
     end
 
@@ -186,27 +203,9 @@ local function delete_keyword(keyword)
         end
     end
 
-    local writer = io.open(KEYWORDS_FILE, "w")
-    if not writer then
-        send_text(500, "写入关键词文件失败")
-        return
-    end
-
-    for _, line in ipairs(filtered) do
-        writer:write(line .. "\n")
-    end
-    writer:close()
-
-    local next_version, version_err = bump_keyword_version()
-    if not next_version then
-        ngx.log(ngx.ERR, "Failed to bump keyword version after delete: ", version_err or "unknown error")
-        send_text(500, "更新关键词版本失败")
-        return
-    end
-
-    if not sync_keyword_metadata(#filtered) then
-        ngx.log(ngx.ERR, "Failed to sync keyword metadata after delete")
-        send_text(500, "同步关键词元数据失败")
+    local ok, reload_err = persist_and_reload(filtered, lines)
+    if not ok then
+        send_text(500, reload_err)
         return
     end
 
