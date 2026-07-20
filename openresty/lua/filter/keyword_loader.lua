@@ -15,6 +15,7 @@ local function cache()
             matchers = nil,
             regex_snapshot = nil,
             anchor_matcher = nil,
+            regex_version = 0,
             version = 0,
             loaded = 0,
             chunks = 0,
@@ -100,8 +101,6 @@ local function apply_failed_state(target_version, err)
     state.loading = false
 
     update_metadata(target_version, 0, STATUS_FAILED, state.last_loaded_at, err)
-    version_dict():set("regex_rules_status", STATUS_FAILED)
-    version_dict():set("regex_rules_load_error", err)
     version_dict():set("keyword_matcher_chunks", 0)
     version_dict():set("keyword_chunk_size", chunk_size)
     ngx.log(ngx.ERR, "Keyword load failed: ", err)
@@ -117,6 +116,8 @@ local function build_for_version(target_version)
 
     local regex_snapshot, regex_err = regex_rules.load()
     if not regex_snapshot then
+        version_dict():set("regex_rules_status", STATUS_FAILED)
+        version_dict():set("regex_rules_load_error", regex_err)
         return apply_failed_state(target_version, regex_err)
     end
 
@@ -196,6 +197,7 @@ local function build_for_version(target_version)
     state.matchers = matchers
     state.regex_snapshot = regex_snapshot
     state.anchor_matcher = anchor_matcher
+    state.regex_version = target_version
     state.version = target_version
     state.loaded = loaded
     state.chunks = chunks
@@ -267,6 +269,12 @@ function _M.init_worker()
 
     if dict:get(VERSION_KEY) == nil then
         update_metadata(1, 0, STATUS_INIT, "", "")
+        dict:set("regex_rules_status", STATUS_INIT)
+        dict:set("regex_rules_loaded", 0)
+        dict:set("regex_rules_version", 1)
+        dict:set("regex_rules_last_loaded_at", "")
+        dict:set("regex_rules_load_error", "")
+        dict:set("regex_pattern_bytes", 0)
     else
         if dict:get("keyword_backend") == nil then
             dict:set("keyword_backend", "lua")
@@ -308,7 +316,7 @@ function _M.read_metadata()
         keywords_load_error = dict:get("keywords_load_error") or ""
         ,regex_rules_loaded = dict:get("regex_rules_loaded") or 0
         ,regex_rules_version = dict:get("regex_rules_version") or 1
-        ,regex_rules_status = dict:get("regex_rules_status") or STATUS_READY
+        ,regex_rules_status = dict:get("regex_rules_status") or STATUS_INIT
         ,regex_rules_last_loaded_at = dict:get("regex_rules_last_loaded_at") or ""
         ,regex_rules_load_error = dict:get("regex_rules_load_error") or ""
         ,regex_pattern_bytes = dict:get("regex_pattern_bytes") or 0
@@ -318,6 +326,7 @@ end
 function _M.ensure_ready()
     local state = cache()
     local version = current_version()
+    local regex_version = version_dict():get("regex_rules_version") or 1
 
     if state.version ~= version then
         local ok, err = schedule_reload(version)
@@ -328,6 +337,12 @@ function _M.ensure_ready()
     end
 
     if state.status == STATUS_READY and state.matchers and #state.matchers > 0 then
+        if state.regex_version ~= regex_version then
+            local _, regex_err = _M.reload_regex(regex_version)
+            if regex_err then
+                return false, regex_err
+            end
+        end
         return true
     end
 
@@ -351,7 +366,7 @@ function _M.reload()
     return build_for_version(current_version() + 1)
 end
 
-function _M.reload_regex()
+function _M.reload_regex(version)
     local state = cache()
     if state.status ~= STATUS_READY or not state.matchers then
         return nil, "关键词库未就绪"
@@ -370,7 +385,8 @@ function _M.reload_regex()
     end
     state.regex_snapshot = snapshot
     state.anchor_matcher = matcher
-    local version = (version_dict():get("regex_rules_version") or 0) + 1
+    version = version or ((version_dict():get("regex_rules_version") or 0) + 1)
+    state.regex_version = version
     local loaded_at = ngx.localtime()
     local dict = version_dict()
     dict:set("regex_rules_loaded", #snapshot.rules)
