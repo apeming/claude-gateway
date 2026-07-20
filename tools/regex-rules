@@ -1,2 +1,17 @@
-#!/usr/bin/env sh
-exec python3 "$(dirname "$0")/regex_rules.py" "$@"
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RULES_SCRIPT="$SCRIPT_DIR/regex_rules.py"
+
+if ! command -v python3 &> /dev/null; then
+    echo "❌ 错误: 未找到 python3，请先安装Python 3"
+    exit 1
+fi
+
+if ! python3 -c "import requests" &> /dev/null; then
+    echo "⚠️  警告: 缺少依赖包，正在安装..."
+    pip3 install -r "$SCRIPT_DIR/requirements.txt"
+fi
+
+cd "$SCRIPT_DIR"
+python3 "$RULES_SCRIPT" "$@"
