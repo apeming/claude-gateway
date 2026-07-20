@@ -46,7 +46,9 @@ local function validate_rule(rule, ids)
     end
 
     ids[rule.id] = true
-    rule.expression = rule.expression:gsub("{{anchor}}", escape_pcre_literal(rule.anchor))
+    rule.expression = rule.expression:gsub("{{anchor}}", function()
+        return escape_pcre_literal(rule.anchor)
+    end)
     rule.enabled = rule.enabled ~= false
     return rule
 end
