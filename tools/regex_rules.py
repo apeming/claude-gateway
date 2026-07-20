@@ -1,24 +1,14 @@
 #!/usr/bin/env python3
 import argparse
-import json
-import os
-import sys
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from keywords import KeywordsManager
 
 
-def request(method, path, payload=None):
-    base = os.environ.get("GATEWAY_URL", "http://127.0.0.1:18888").rstrip("/")
-    token = os.environ.get("API_TOKEN", "default-secret-token-please-change-me")
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload else None
-    req = Request(base + path, data=data, method=method, headers={"X-API-Key": token, "Content-Type": "application/json"})
-    try:
-        with urlopen(req) as response:
-            return response.status, response.read().decode("utf-8")
-    except HTTPError as error:
-        return error.code, error.read().decode("utf-8")
-    except URLError as error:
-        return 0, str(error)
+class RegexRulesManager(KeywordsManager):
+    def request(self, method, path, payload=None):
+        response = self._make_request(method, path, json=payload)
+        if response is None:
+            return 0, "Request failed"
+        return response.status_code, response.text
 
 
 def main():
@@ -33,12 +23,13 @@ def main():
     commands.add_parser("list")
     commands.add_parser("status")
     args = parser.parse_args()
+    manager = RegexRulesManager()
     if args.command == "add":
-        status, body = request("POST", "/regex-rules", {"id": args.id, "anchor": args.anchor, "expression": args.expression})
+        status, body = manager.request("POST", "/regex-rules", {"id": args.id, "anchor": args.anchor, "expression": args.expression})
     elif args.command == "del":
-        status, body = request("DELETE", "/regex-rules", {"id": args.id})
+        status, body = manager.request("DELETE", "/regex-rules", {"id": args.id})
     else:
-        status, body = request("GET", "/regex-rules")
+        status, body = manager.request("GET", "/regex-rules")
     if status < 200 or status >= 300:
         print(body, file=sys.stderr)
         return 1
