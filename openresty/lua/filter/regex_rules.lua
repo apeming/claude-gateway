@@ -89,14 +89,14 @@ function _M.find_match(snapshot, data)
     end
     local captures, err = ngx.re.match(data, snapshot.master_pattern, "ujo")
     if err then
-        return nil, "正则规则匹配失败: " .. err
+        return nil, nil, "正则规则匹配失败: " .. err
     end
     if not captures then
         return nil
     end
     for _, rule in ipairs(snapshot.rules) do
         if captures[rule.capture_name] then
-            return rule.id
+            return rule.id, captures[rule.capture_name]
         end
     end
     return nil

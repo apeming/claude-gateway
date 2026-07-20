@@ -408,12 +408,12 @@ function _M.find_match(data)
     if state.anchor_matcher then
         local anchor_begin = ahocorasick.match(state.anchor_matcher, data)
         if anchor_begin then
-            local rule_id, regex_err = regex_rules.find_match(state.regex_snapshot, data)
+            local rule_id, matched_value, regex_err = regex_rules.find_match(state.regex_snapshot, data)
             if regex_err then
                 return nil, regex_err
             end
             if rule_id then
-                return { kind = "anchored_regex", id = rule_id }, nil
+                return { kind = "anchored_regex", id = rule_id, value = matched_value }, nil
             end
         end
     end

@@ -54,9 +54,9 @@ grep -F '命中关键词：literal-secret' "$OUTPUT_FILE" >/dev/null
 
 regex_code="$(curl -sS -o "$OUTPUT_FILE" -w '%{http_code}' -X POST "$GATEWAY_URL/openai/responses" -H 'Authorization: Bearer dummy-token' -H 'Content-Type: application/json' -d '{"input":"5.1 本协议服务总价（含税）：￥ 100,000.00"}')"
 [[ "$regex_code" == "403" ]]
-grep -F 'contract-total-price' "$OUTPUT_FILE" >/dev/null
+grep -F '命中内容：服务总价（含税）：￥ 100,000.00' "$OUTPUT_FILE" >/dev/null
 
 plain_code="$(curl -sS -o "$OUTPUT_FILE" -w '%{http_code}' -X POST "$GATEWAY_URL/openai/responses" -H 'Authorization: Bearer dummy-token' -H 'Content-Type: application/json' -d '{"input":"普通讨论：100,000.00 元"}')"
-[[ "$plain_code" != "403" ]]
+! grep -F '检测到请求中包含敏感信息' "$OUTPUT_FILE" >/dev/null
 
 echo "anchored regex filtering works"
