@@ -10,6 +10,7 @@ RUN apk add --no-cache \
     gcc \
     g++ \
     make \
+    patch \
     git \
     lua-dev
 
@@ -30,6 +31,7 @@ COPY libs/ /tmp/libs/
 RUN cd /tmp/libs \
     && unzip lua-aho-corasick.zip \
     && cd lua-aho-corasick-master \
+    && patch -p1 < /tmp/libs/patches/lua-aho-corasick-classified-scan.patch \
     && sed -i 's/luaL_register(L, tname, lib_funcs);/lua_newtable(L); luaL_register(L, NULL, lib_funcs);/' ac_lua.cxx \
     && make \
     && make install LUA_INCLUDE_DIR=/usr/local/openresty/luajit/include/luajit-2.1 \
