@@ -18,6 +18,7 @@ end
 
 function _M.check(data)
     ngx.ctx.blocked_keyword = nil
+    ngx.ctx.blocked_regex_rule_id = nil
     ngx.ctx.keyword_load_error = nil
 
     if not data or data == "" then
@@ -33,9 +34,15 @@ function _M.check(data)
     end
 
     if matched then
-        ngx.ctx.blocked_keyword = matched
-        ngx.log(ngx.WARN, "Keyword filter blocked request, matched keyword: ", sanitize_for_text(matched, 80),
-            ", uri: ", ngx.var.request_uri or "")
+        if matched.kind == "literal" then
+            ngx.ctx.blocked_keyword = matched.value
+            ngx.log(ngx.WARN, "Keyword filter blocked request, matched keyword: ", sanitize_for_text(matched.value, 80),
+                ", uri: ", ngx.var.request_uri or "")
+        else
+            ngx.ctx.blocked_regex_rule_id = matched.id
+            ngx.log(ngx.WARN, "Keyword filter blocked request, matched regex rule: ", sanitize_for_text(matched.id, 80),
+                ", uri: ", ngx.var.request_uri or "")
+        end
         return false
     end
 
@@ -45,6 +52,7 @@ end
 function _M.send_blocked_response()
     local load_error = sanitize_for_text(ngx.ctx.keyword_load_error, 200)
     local matched = sanitize_for_text(ngx.ctx.blocked_keyword, 200)
+    local regex_rule_id = sanitize_for_text(ngx.ctx.blocked_regex_rule_id, 200)
 
     ngx.header["Content-Type"] = "text/plain; charset=utf-8"
 
@@ -61,6 +69,8 @@ function _M.send_blocked_response()
 
     if matched ~= "" then
         message = message .. "命中关键词：" .. matched
+    elseif regex_rule_id ~= "" then
+        message = message .. "命中规则：" .. regex_rule_id
     end
 
     ngx.print(message)

@@ -1,4 +1,5 @@
 local _M = {}
+local regex_rules = require "filter.regex_rules"
 
 local KEYWORDS_FILE = "/etc/openresty/keywords.txt"
 local VERSION_KEY = "version"
@@ -12,6 +13,8 @@ local function cache()
     if not package.loaded.keyword_loader_cache then
         package.loaded.keyword_loader_cache = {
             matchers = nil,
+            regex_snapshot = nil,
+            anchor_matcher = nil,
             version = 0,
             loaded = 0,
             chunks = 0,
@@ -90,6 +93,8 @@ local function apply_failed_state(target_version, err)
     state.loading = false
 
     update_metadata(target_version, 0, STATUS_FAILED, state.last_loaded_at, err)
+    version_dict():set("regex_rules_status", STATUS_FAILED)
+    version_dict():set("regex_rules_load_error", err)
     version_dict():set("keyword_matcher_chunks", 0)
     version_dict():set("keyword_chunk_size", chunk_size)
     ngx.log(ngx.ERR, "Keyword load failed: ", err)
@@ -101,6 +106,11 @@ local function build_for_version(target_version)
     local ahocorasick, module_err = load_ahocorasick()
     if not ahocorasick then
         return apply_failed_state(target_version, module_err)
+    end
+
+    local regex_snapshot, regex_err = regex_rules.load()
+    if not regex_snapshot then
+        return apply_failed_state(target_version, regex_err)
     end
 
     local chunk_size, chunk_err = keyword_chunk_size()
@@ -166,10 +176,21 @@ local function build_for_version(target_version)
         return apply_failed_state(target_version, flush_err)
     end
 
+    local anchor_matcher = nil
+    if #regex_snapshot.anchors > 0 then
+        local anchor_err
+        anchor_matcher, anchor_err = build_chunk_matcher(ahocorasick, regex_snapshot.anchors)
+        if not anchor_matcher then
+            return apply_failed_state(target_version, anchor_err)
+        end
+    end
+
     local loaded_at = ngx.localtime()
     local state = cache()
 
     state.matchers = matchers
+    state.regex_snapshot = regex_snapshot
+    state.anchor_matcher = anchor_matcher
     state.version = target_version
     state.loaded = loaded
     state.chunks = chunks
@@ -181,6 +202,12 @@ local function build_for_version(target_version)
     update_metadata(target_version, loaded, STATUS_READY, loaded_at, "")
     version_dict():set("keyword_matcher_chunks", chunks)
     version_dict():set("keyword_chunk_size", chunk_size)
+    version_dict():set("regex_rules_loaded", #regex_snapshot.rules)
+    version_dict():set("regex_rules_status", STATUS_READY)
+    version_dict():set("regex_rules_last_loaded_at", loaded_at)
+    version_dict():set("regex_rules_load_error", "")
+    version_dict():set("regex_rules_version", target_version)
+    version_dict():set("regex_pattern_bytes", regex_snapshot.pattern_bytes)
 
     return {
         keyword_backend = "lua",
@@ -202,6 +229,8 @@ local function schedule_reload(target_version)
     end
 
     state.matchers = nil
+    state.regex_snapshot = nil
+    state.anchor_matcher = nil
     state.version = target_version
     state.loaded = 0
     state.chunks = 0
@@ -272,6 +301,12 @@ function _M.read_metadata()
         keywords_status = dict:get("keywords_status") or STATUS_INIT,
         keywords_last_loaded_at = dict:get("keywords_last_loaded_at") or "",
         keywords_load_error = dict:get("keywords_load_error") or ""
+        ,regex_rules_loaded = dict:get("regex_rules_loaded") or 0
+        ,regex_rules_version = dict:get("regex_rules_version") or 1
+        ,regex_rules_status = dict:get("regex_rules_status") or STATUS_READY
+        ,regex_rules_last_loaded_at = dict:get("regex_rules_last_loaded_at") or ""
+        ,regex_rules_load_error = dict:get("regex_rules_load_error") or ""
+        ,regex_pattern_bytes = dict:get("regex_pattern_bytes") or 0
     }
 end
 
@@ -330,7 +365,20 @@ function _M.find_match(data)
     for _, matcher in ipairs(state.matchers or {}) do
         local begin_offset, end_offset = ahocorasick.match(matcher, data)
         if begin_offset and end_offset then
-            return data:sub(begin_offset + 1, end_offset + 1), nil
+            return { kind = "literal", value = data:sub(begin_offset + 1, end_offset + 1) }, nil
+        end
+    end
+
+    if state.anchor_matcher then
+        local anchor_begin = ahocorasick.match(state.anchor_matcher, data)
+        if anchor_begin then
+            local rule_id, regex_err = regex_rules.find_match(state.regex_snapshot, data)
+            if regex_err then
+                return nil, regex_err
+            end
+            if rule_id then
+                return { kind = "anchored_regex", id = rule_id }, nil
+            end
         end
     end
 
