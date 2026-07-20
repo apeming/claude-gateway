@@ -99,9 +99,10 @@ class KeywordsManager:
         """发送HTTP请求"""
         url = urljoin(self.config["api_base_url"], endpoint)
         headers = self._get_headers()
+        timeout = kwargs.pop("timeout", 10)
 
         try:
-            response = requests.request(method, url, headers=headers, timeout=10, **kwargs)
+            response = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
             return response
         except requests.exceptions.RequestException as e:
             print(f"❌ 请求失败: {e}")

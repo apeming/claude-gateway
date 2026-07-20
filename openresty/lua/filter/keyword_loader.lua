@@ -71,6 +71,13 @@ local function build_chunk_matcher(ahocorasick, keywords)
     return matcher_or_err
 end
 
+local function build_anchor_matcher(ahocorasick, anchors)
+    if #anchors == 0 then
+        return nil
+    end
+    return build_chunk_matcher(ahocorasick, anchors)
+end
+
 local function load_ahocorasick()
     local ok, module_or_err = pcall(require, "ahocorasick")
     if not ok then
@@ -176,10 +183,8 @@ local function build_for_version(target_version)
         return apply_failed_state(target_version, flush_err)
     end
 
-    local anchor_matcher = nil
+    local anchor_matcher, anchor_err = build_anchor_matcher(ahocorasick, regex_snapshot.anchors)
     if #regex_snapshot.anchors > 0 then
-        local anchor_err
-        anchor_matcher, anchor_err = build_chunk_matcher(ahocorasick, regex_snapshot.anchors)
         if not anchor_matcher then
             return apply_failed_state(target_version, anchor_err)
         end
@@ -344,6 +349,37 @@ end
 
 function _M.reload()
     return build_for_version(current_version() + 1)
+end
+
+function _M.reload_regex()
+    local state = cache()
+    if state.status ~= STATUS_READY or not state.matchers then
+        return nil, "关键词库未就绪"
+    end
+    local ahocorasick, module_err = load_ahocorasick()
+    if not ahocorasick then
+        return nil, module_err
+    end
+    local snapshot, load_err = regex_rules.load()
+    if not snapshot then
+        return nil, load_err
+    end
+    local matcher, matcher_err = build_anchor_matcher(ahocorasick, snapshot.anchors)
+    if #snapshot.anchors > 0 and not matcher then
+        return nil, matcher_err
+    end
+    state.regex_snapshot = snapshot
+    state.anchor_matcher = matcher
+    local version = (version_dict():get("regex_rules_version") or 0) + 1
+    local loaded_at = ngx.localtime()
+    local dict = version_dict()
+    dict:set("regex_rules_loaded", #snapshot.rules)
+    dict:set("regex_rules_status", STATUS_READY)
+    dict:set("regex_rules_last_loaded_at", loaded_at)
+    dict:set("regex_rules_load_error", "")
+    dict:set("regex_rules_version", version)
+    dict:set("regex_pattern_bytes", snapshot.pattern_bytes)
+    return _M.read_metadata()
 end
 
 function _M.find_match(data)

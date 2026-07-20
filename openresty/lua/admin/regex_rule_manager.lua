@@ -51,10 +51,10 @@ end
 local function persist(next_lines, previous_lines)
     local ok, err = write_lines(next_lines)
     if not ok then return nil, err end
-    local metadata, reload_err = keyword_loader.reload()
+    local metadata, reload_err = keyword_loader.reload_regex()
     if metadata then return metadata end
     write_lines(previous_lines)
-    keyword_loader.reload()
+    keyword_loader.reload_regex()
     return nil, reload_err
 end
 

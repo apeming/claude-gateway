@@ -9,9 +9,10 @@ from keywords import KeywordsManager
 
 class RegexRulesManager(KeywordsManager):
     def _request_rules(self, method: str, payload: Optional[dict] = None):
-        return self._make_request(method, "/regex-rules", json=payload)
+        return self._make_request(method, "/regex-rules", json=payload, timeout=120)
 
     def add_rule(self, rule_id: str, anchor: str, expression: str) -> bool:
+        expression = "".join(line.strip() for line in expression.splitlines())
         response = self._request_rules("POST", {
             "id": rule_id,
             "anchor": anchor,
