@@ -1,5 +1,6 @@
 local _M = {}
 local regex_rules = require "filter.regex_rules"
+local numeric_keyword_context = require "filter.numeric_keyword_context"
 
 local KEYWORDS_FILE = "/etc/openresty/keywords.txt"
 local VERSION_KEY = "version"
@@ -13,6 +14,8 @@ local function cache()
     if not package.loaded.keyword_loader_cache then
         package.loaded.keyword_loader_cache = {
             matchers = nil,
+            numeric_keywords = nil,
+            numeric_keyword_lengths = nil,
             regex_snapshot = nil,
             anchor_matcher = nil,
             regex_version = 0,
@@ -72,6 +75,70 @@ local function build_chunk_matcher(ahocorasick, keywords)
     return matcher_or_err
 end
 
+local function is_numeric_keyword(keyword)
+    return keyword:match("^%d+$") ~= nil
+end
+
+local function is_ascii_digit(byte)
+    return byte and byte >= 48 and byte <= 57
+end
+
+local function add_numeric_keyword(numeric_keywords, numeric_keyword_lengths, keyword)
+    local length = #keyword
+    if not numeric_keywords[length] then
+        numeric_keywords[length] = {}
+        numeric_keyword_lengths[#numeric_keyword_lengths + 1] = length
+    end
+    numeric_keywords[length][keyword] = true
+end
+
+local function has_loaded_keywords(state)
+    return (state.matchers and #state.matchers > 0)
+        or (state.numeric_keyword_lengths and #state.numeric_keyword_lengths > 0)
+end
+
+local function find_numeric_match(data, numeric_keywords, numeric_keyword_lengths)
+    if not numeric_keyword_lengths or #numeric_keyword_lengths == 0 then
+        return nil
+    end
+
+    local position = 1
+    while position <= #data do
+        if is_ascii_digit(data:byte(position)) then
+            local run_start = position
+            repeat
+                position = position + 1
+            until position > #data or not is_ascii_digit(data:byte(position))
+
+            local run_end = position - 1
+            local run_length = run_end - run_start + 1
+            for _, keyword_length in ipairs(numeric_keyword_lengths) do
+                if keyword_length <= run_length then
+                    -- A valid candidate must have fewer than four preceding digits and
+                    -- fewer than three trailing digits in its contiguous digit run.
+                    local first_offset = math.max(0, run_length - keyword_length - 2)
+                    local last_offset = math.min(3, run_length - keyword_length)
+                    local keywords = numeric_keywords[keyword_length]
+
+                    for offset = first_offset, last_offset do
+                        local begin_index = run_start + offset
+                        local end_index = begin_index + keyword_length - 1
+                        local candidate = data:sub(begin_index, end_index)
+                        if keywords[candidate]
+                            and not numeric_keyword_context.should_skip(data, begin_index - 1, end_index - 1) then
+                            return candidate
+                        end
+                    end
+                end
+            end
+        else
+            position = position + 1
+        end
+    end
+
+    return nil
+end
+
 local function build_anchor_matcher(ahocorasick, anchors)
     if #anchors == 0 then
         return nil
@@ -93,6 +160,8 @@ local function apply_failed_state(target_version, err)
     local chunk_size = keyword_chunk_size() or DEFAULT_KEYWORD_CHUNK_SIZE
 
     state.matchers = nil
+    state.numeric_keywords = nil
+    state.numeric_keyword_lengths = nil
     state.version = target_version
     state.loaded = 0
     state.chunks = 0
@@ -132,6 +201,8 @@ local function build_for_version(target_version)
     end
 
     local matchers = {}
+    local numeric_keywords = {}
+    local numeric_keyword_lengths = {}
     local keywords = {}
     local loaded = 0
     local chunks = 0
@@ -142,13 +213,23 @@ local function build_for_version(target_version)
             return true
         end
 
-        local matcher, build_err = build_chunk_matcher(ahocorasick, keywords)
-        if not matcher then
-            return nil, build_err
+        local literal_keywords = {}
+        for _, keyword in ipairs(keywords) do
+            if is_numeric_keyword(keyword) then
+                add_numeric_keyword(numeric_keywords, numeric_keyword_lengths, keyword)
+            else
+                literal_keywords[#literal_keywords + 1] = keyword
+            end
         end
 
         chunks = chunks + 1
-        matchers[chunks] = matcher
+        if #literal_keywords > 0 then
+            local matcher, build_err = build_chunk_matcher(ahocorasick, literal_keywords)
+            if not matcher then
+                return nil, build_err
+            end
+            matchers[#matchers + 1] = matcher
+        end
         keywords = {}
 
         -- 构建下一块前主动回收上一块的临时字符串表，降低启动峰值内存。
@@ -194,7 +275,13 @@ local function build_for_version(target_version)
     local loaded_at = ngx.localtime()
     local state = cache()
 
+    table.sort(numeric_keyword_lengths, function(left, right)
+        return left > right
+    end)
+
     state.matchers = matchers
+    state.numeric_keywords = numeric_keywords
+    state.numeric_keyword_lengths = numeric_keyword_lengths
     state.regex_snapshot = regex_snapshot
     state.anchor_matcher = anchor_matcher
     state.regex_version = target_version
@@ -236,6 +323,8 @@ local function schedule_reload(target_version)
     end
 
     state.matchers = nil
+    state.numeric_keywords = nil
+    state.numeric_keyword_lengths = nil
     state.regex_snapshot = nil
     state.anchor_matcher = nil
     state.version = target_version
@@ -336,7 +425,7 @@ function _M.ensure_ready()
         return false, "关键词库加载中"
     end
 
-    if state.status == STATUS_READY and state.matchers and #state.matchers > 0 then
+    if state.status == STATUS_READY and has_loaded_keywords(state) then
         if state.regex_version ~= regex_version then
             local _, regex_err = _M.reload_regex(regex_version)
             if regex_err then
@@ -368,7 +457,7 @@ end
 
 function _M.reload_regex(version)
     local state = cache()
-    if state.status ~= STATUS_READY or not state.matchers then
+    if state.status ~= STATUS_READY or not has_loaded_keywords(state) then
         return nil, "关键词库未就绪"
     end
     local ahocorasick, module_err = load_ahocorasick()
@@ -419,6 +508,11 @@ function _M.find_match(data)
         if begin_offset and end_offset then
             return { kind = "literal", value = data:sub(begin_offset + 1, end_offset + 1) }, nil
         end
+    end
+
+    local numeric_match = find_numeric_match(data, state.numeric_keywords, state.numeric_keyword_lengths)
+    if numeric_match then
+        return { kind = "literal", value = numeric_match }, nil
     end
 
     if state.anchor_matcher then

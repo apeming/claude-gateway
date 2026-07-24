@@ -1,0 +1,3 @@
+services:
+  claude-gateway:
+    container_name: ${TEST_CONTAINER_NAME:?TEST_CONTAINER_NAME is required}

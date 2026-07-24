@@ -5,8 +5,11 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_CONFIG_DIR="$(mktemp -d)"
 PROJECT_NAME="cg-chunked-$$"
 NETWORK_NAME="${PROJECT_NAME}-net"
-GATEWAY_URL="http://127.0.0.1:18888"
+TEST_CONTAINER_NAME="${PROJECT_NAME}-gateway"
+HOST_PORT="$(node -e 'const net = require("net"); const server = net.createServer(); server.listen(0, "127.0.0.1", () => { console.log(server.address().port); server.close(); });')"
+GATEWAY_URL="http://127.0.0.1:${HOST_PORT}"
 OUTPUT_FILE="$(mktemp)"
+COMPOSE_FILES=(-f "$ROOT_DIR/docker-compose.yml" -f "$ROOT_DIR/tests/docker-compose.isolated.yml")
 
 cleanup() {
   env \
@@ -14,13 +17,14 @@ cleanup() {
     DOCKER_NETWORK_EXTERNAL=false \
     DOCKER_NETWORK_NAME="$NETWORK_NAME" \
     HOST_IP=127.0.0.1 \
-    HOST_PORT=18888 \
+    HOST_PORT="$HOST_PORT" \
     CONFIG_DIR="$TEST_CONFIG_DIR" \
     API_TOKEN=default-secret-token-please-change-me \
     ENABLE_DYNAMIC_ROUTING=false \
     KEYWORD_CHUNK_SIZE=1 \
     WORKER_PROCESSES=1 \
-    docker compose down -v --remove-orphans >/dev/null 2>&1 || true
+    TEST_CONTAINER_NAME="$TEST_CONTAINER_NAME" \
+    docker compose "${COMPOSE_FILES[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
   rm -rf "$TEST_CONFIG_DIR" "$OUTPUT_FILE"
 }
 
@@ -35,20 +39,19 @@ EOF
 
 cd "$ROOT_DIR"
 
-docker rm -f claude-gateway >/dev/null 2>&1 || true
-
 env \
   COMPOSE_PROJECT_NAME="$PROJECT_NAME" \
   DOCKER_NETWORK_EXTERNAL=false \
   DOCKER_NETWORK_NAME="$NETWORK_NAME" \
   HOST_IP=127.0.0.1 \
-  HOST_PORT=18888 \
+  HOST_PORT="$HOST_PORT" \
   CONFIG_DIR="$TEST_CONFIG_DIR" \
   API_TOKEN=default-secret-token-please-change-me \
   ENABLE_DYNAMIC_ROUTING=false \
   KEYWORD_CHUNK_SIZE=1 \
   WORKER_PROCESSES=1 \
-  docker compose up -d --build >/dev/null
+  TEST_CONTAINER_NAME="$TEST_CONTAINER_NAME" \
+  docker compose "${COMPOSE_FILES[@]}" up -d --build >/dev/null
 
 for _ in $(seq 1 60); do
   HTTP_CODE="$(curl -sS -o "$OUTPUT_FILE" -w "%{http_code}" "$GATEWAY_URL/health" || true)"
